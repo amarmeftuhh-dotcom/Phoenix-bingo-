@@ -724,13 +724,81 @@
 </nav>
 <script src="/socket.io/socket.io.js"></script>
 <script>
-    const socket = io();
-    function showOfflineAlert() {
-        const alertBox = document.getElementById('offline-alert');
-        alertBox.classList.add('show');
-        setTimeout(() => { alertBox.classList.remove('show'); }, 3000);
+    if (typeof io === 'undefined') {
+        document.write('<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"><\/script>');
     }
-    window.addEventListener('offline', () => { showOfflineAlert(); });
+</script>
+<script>
+    const PHOENIX_RENDER_URL = 'https://phoenix-bingo-5w5t.onrender.com';
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const isRenderHost = window.location.origin.includes('phoenix-bingo-5w5t.onrender.com');
+    const BACKEND_URL = isLocalhost ? '' : (isRenderHost ? window.location.origin : PHOENIX_RENDER_URL);
+
+    // Route relative /api/ requests to the Phoenix Bingo backend when frontend is hosted separately
+    if (BACKEND_URL && !window._fetchPatched) {
+        window._fetchPatched = true;
+        const origFetch = window.fetch;
+        window.fetch = function(input, init) {
+            if (typeof input === 'string' && input.startsWith('/api/')) {
+                input = BACKEND_URL + input;
+            }
+            return origFetch.call(this, input, init);
+        };
+    }
+
+    const socket = (typeof io !== 'undefined') ? io(BACKEND_URL || undefined, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000
+    }) : { connected: false, on: () => {}, emit: () => {} };
+
+    function showOfflineAlert(customMsg) {
+        const alertBox = document.getElementById('offline-alert');
+        if (!alertBox) return;
+        const origText = '❌ ኢንተርኔት ተቋርጧል! (Internet is lost)';
+        if (customMsg) alertBox.innerText = customMsg;
+        alertBox.classList.add('show');
+        setTimeout(() => {
+            alertBox.classList.remove('show');
+            setTimeout(() => {
+                alertBox.innerText = origText;
+            }, 400);
+        }, 3000);
+    }
+
+    socket.on('connect', () => {
+        const alertBox = document.getElementById('offline-alert');
+        if (alertBox) alertBox.classList.remove('show');
+    });
+
+    socket.on('connect_error', (err) => {
+        console.warn('[Socket.IO] Connection notice:', err ? err.message : err);
+    });
+
+    socket.on('reconnect', () => {
+        const alertBox = document.getElementById('offline-alert');
+        if (alertBox) alertBox.classList.remove('show');
+        if (currentUser && currentUser.phone) {
+            socket.emit('get_initial_data', currentUser.phone);
+        }
+    });
+
+    window.addEventListener('offline', () => {
+        if (!socket.connected) {
+            showOfflineAlert();
+        }
+    });
+
+    window.addEventListener('online', () => {
+        const alertBox = document.getElementById('offline-alert');
+        if (alertBox) alertBox.classList.remove('show');
+        if (socket && !socket.connected && typeof socket.connect === 'function') {
+            socket.connect();
+        }
+    });
     let called = []; 
     let currentUser = null;
     let userTicketsData = [];
@@ -1814,8 +1882,13 @@
             
             d.onclick = (e) => { 
                 e.preventDefault(); 
-                if (!navigator.onLine || !socket.connected) {
-                    showOfflineAlert();
+                if (!socket.connected) {
+                    if (navigator.onLine === false) {
+                        showOfflineAlert();
+                    } else {
+                        showOfflineAlert(currentLang === 'AM' ? '⏳ ከሰርቨር ጋር እየተገናኘ ነው... (Connecting...)' : '⏳ Connecting to server...');
+                        if (typeof socket.connect === 'function') socket.connect();
+                    }
                     return; 
                 }
                 

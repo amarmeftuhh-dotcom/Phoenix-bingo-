@@ -1498,7 +1498,31 @@
 </div>
 <script src="/socket.io/socket.io.js"></script>
 <script>
-    const socket = io(); let pass = ""; let isGameCurrentlyPaused = false;
+    if (typeof io === 'undefined') {
+        document.write('<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"><\/script>');
+    }
+</script>
+<script>
+    const PHOENIX_RENDER_URL = 'https://phoenix-bingo-5w5t.onrender.com';
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const isRenderHost = window.location.origin.includes('phoenix-bingo-5w5t.onrender.com');
+    const BACKEND_URL = isLocalhost ? '' : (isRenderHost ? window.location.origin : PHOENIX_RENDER_URL);
+
+    if (BACKEND_URL && !window._fetchPatched) {
+        window._fetchPatched = true;
+        const origFetch = window.fetch;
+        window.fetch = function(input, init) {
+            if (typeof input === 'string' && input.startsWith('/api/')) {
+                input = BACKEND_URL + input;
+            }
+            return origFetch.call(this, input, init);
+        };
+    }
+
+    const socket = (typeof io !== 'undefined') ? io(BACKEND_URL || undefined, {
+        transports: ['websocket', 'polling']
+    }) : { connected: false, on: () => {}, emit: () => {} };
+    let pass = ""; let isGameCurrentlyPaused = false;
     let limitPerPage = 30;
     
     let p_users = 1, p_hist = 1, p_tx = 1, p_ref = 1, p_sms = 1;

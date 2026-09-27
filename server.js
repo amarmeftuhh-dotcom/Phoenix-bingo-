@@ -77,6 +77,17 @@ if (MONGO_URI) {
     console.warn('[MongoDB] MONGO_URI not provided. Running in memory / offline DB mode.');
 }
 
+// Enable CORS for external frontends / webviews connecting to Phoenix Bingo Render backend
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-secret, x-webhook-secret');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname)));
@@ -188,7 +199,77 @@ const Promo = mongoose.models.Promo || mongoose.model('Promo', PromoSchema);
 // ══════════════════════════════════════════════════
 let bot = null;
 if (TELEGRAM_BOT_TOKEN) {
-    bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+    // 1. Process-level Singleton: Stop any pre-existing bot polling in this server process
+    if (global.__phoenixTelegramBot) {
+        try {
+            if (typeof global.__phoenixTelegramBot.stopPolling === 'function' && global.__phoenixTelegramBot.isPolling()) {
+                global.__phoenixTelegramBot.stopPolling({ cancel: true, reason: 'Replacing instance' }).catch(() => {});
+            }
+        } catch (_) {}
+    }
+
+    // 2. Mutual exclusivity: Polling and WebHook modes cannot run simultaneously
+    const isWebhookMode = process.env.TELEGRAM_MODE === 'webhook' || 
+                          process.env.USE_TELEGRAM_WEBHOOK === 'true' || 
+                          process.env.TELEGRAM_WEBHOOK === 'true';
+    const isPollingEnabled = !isWebhookMode && 
+                             process.env.TELEGRAM_POLLING !== 'false' && 
+                             process.env.DISABLE_TELEGRAM_POLLING !== 'true';
+
+    // 3. Initialize bot with polling: false so listeners are attached BEFORE any getUpdates request begins
+    bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
+    global.__phoenixTelegramBot = bot;
+
+    let isConflictBackingOff = false;
+    let conflictRetryTimeout = null;
+
+    bot.on('polling_error', (error) => {
+        const errorMsg = (error && (error.message || (error.response && error.response.body && error.response.body.description))) || '';
+        const isConflict = error && (
+            error.code === 'ETELEGRAM' ||
+            (error.response && error.response.statusCode === 409)
+        ) && (
+            errorMsg.includes('409 Conflict') ||
+            errorMsg.includes('terminated by other getUpdates request') ||
+            errorMsg.includes("can't use getUpdates")
+        );
+
+        if (isConflict) {
+            if (!isConflictBackingOff) {
+                isConflictBackingOff = true;
+                console.warn('[Telegram Bot] ⚠️ Polling conflict (409 Conflict): another bot instance is actively receiving getUpdates for this token. Pausing polling on this instance to prevent conflicts.');
+
+                if (typeof bot.stopPolling === 'function') {
+                    bot.stopPolling({ cancel: true, reason: '409 Conflict' }).catch(() => {});
+                }
+
+                clearTimeout(conflictRetryTimeout);
+                conflictRetryTimeout = setTimeout(async () => {
+                    isConflictBackingOff = false;
+                    try {
+                        if (isPollingEnabled && typeof bot.startPolling === 'function' && !bot.isPolling()) {
+                            console.log('[Telegram Bot] Attempting to resume polling...');
+                            await bot.startPolling({ restart: false });
+                        }
+                    } catch (_) {}
+                }, 45000);
+            }
+            return;
+        }
+
+        console.warn('[Telegram Bot] Polling warning:', errorMsg || error);
+    });
+
+    bot.on('error', (err) => {
+        console.warn('[Telegram Bot] General error:', (err && err.message) || err);
+    });
+
+    // 4. Start polling strictly once per process if enabled and not already polling
+    if (isPollingEnabled && typeof bot.startPolling === 'function' && !bot.isPolling()) {
+        bot.startPolling({ restart: false }).catch((err) => {
+            console.warn('[Telegram Bot] Initial startPolling notice:', (err && err.message) || err);
+        });
+    }
 
     bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
         const chatId = msg.chat.id;
@@ -233,10 +314,25 @@ if (TELEGRAM_BOT_TOKEN) {
         }
     });
 
-    console.log('Telegram Bot initialized for Phoenix Bingo');
+    console.log(`Telegram Bot initialized for Phoenix Bingo (${isPollingEnabled ? 'polling mode' : (isWebhookMode ? 'webhook mode' : 'manual mode')})`);
 } else {
     console.warn('[Telegram Bot] TELEGRAM_BOT_TOKEN not provided. Telegram bot running in dummy mode.');
 }
+
+// Graceful process exit to release Telegram polling lock
+const gracefulBotShutdown = async () => {
+    if (bot && typeof bot.isPolling === 'function' && bot.isPolling()) {
+        try {
+            await bot.stopPolling({ cancel: true, reason: 'Process shutdown' });
+        } catch (_) {}
+    }
+};
+process.on('SIGINT', () => {
+    gracefulBotShutdown().finally(() => process.exit(0));
+});
+process.on('SIGTERM', () => {
+    gracefulBotShutdown().finally(() => process.exit(0));
+});
 
 // ══════════════════════════════════════════════════
 // BOT ROUTES & REST APIS
@@ -244,8 +340,23 @@ if (TELEGRAM_BOT_TOKEN) {
 const botRoutesFn = typeof botRoutes === 'function' ? botRoutes(Settings, async () => {}, (req, res, next) => next()) : botRoutes;
 app.use('/api/bot', botRoutesFn);
 
-// Customer-facing Fallback / Status Page
-app.get('/status', (req, res) => {
+// Optional Telegram Webhook endpoint (enables webhook updates alongside or instead of polling)
+app.post('/api/telegram/webhook', (req, res) => {
+    if (bot && req.body) {
+        try {
+            bot.processUpdate(req.body);
+        } catch (e) {
+            console.warn('[Telegram Webhook] Error processing update:', e.message);
+        }
+    }
+    res.sendStatus(200);
+});
+
+// Customer-facing Fallback / Status Page & Health Check Endpoint
+app.get(['/status', '/api/status', '/health', '/api/health'], (req, res) => {
+    if (req.path.startsWith('/api/') || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+        return res.json({ status: 'ok', service: 'Phoenix Bingo', live: true, timestamp: Date.now() });
+    }
     res.send(`
         <!DOCTYPE html>
         <html>
