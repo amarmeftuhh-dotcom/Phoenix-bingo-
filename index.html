@@ -730,9 +730,9 @@
 </script>
 <script>
     const PHOENIX_RENDER_URL = 'https://phoenix-bingo-5w5t.onrender.com';
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isRenderHost = window.location.origin.includes('phoenix-bingo-5w5t.onrender.com');
-    const BACKEND_URL = isLocalhost ? '' : (isRenderHost ? window.location.origin : PHOENIX_RENDER_URL);
+    // Use relative path when served by any full-stack HTTP(S) server (localhost, Cloud Run, custom domain, Render)
+    const isSeparateStaticFrontend = window.location.protocol === 'file:' || window.location.hostname.endsWith('github.io');
+    const BACKEND_URL = isSeparateStaticFrontend ? PHOENIX_RENDER_URL : '';
 
     // Route relative /api/ requests to the Phoenix Bingo backend when frontend is hosted separately
     if (BACKEND_URL && !window._fetchPatched) {
@@ -1503,7 +1503,15 @@
         
         try {
             let res = await fetch(endpoint, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone, password: pass, name, refCode, fingerprint: getDeviceFingerprint()}) }); 
-            let data = await res.json();
+            let data;
+            const contentType = res.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                data = await res.json();
+            } else {
+                const text = await res.text();
+                const cleanText = text.replace(/<[^>]*>/g, '').trim();
+                data = { success: false, message: `Server error (${res.status}): ${cleanText || res.statusText || 'Non-JSON response'}` };
+            }
             
             if(data.success) { 
                 if(isLoginMode) { 
@@ -1517,13 +1525,21 @@
                     document.getElementById('start-btn').innerText = currentLang === 'AM' ? "እየገባ ነው..." : "Logging in...";
                     
                     let logRes = await fetch('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone, password: pass}) });
-                    let logData = await logRes.json();
+                    let logData;
+                    const logContentType = logRes.headers.get('content-type') || '';
+                    if (logContentType.includes('application/json')) {
+                        logData = await logRes.json();
+                    } else {
+                        const logText = await logRes.text();
+                        const cleanLogText = logText.replace(/<[^>]*>/g, '').trim();
+                        logData = { success: false, message: `Server error (${logRes.status}): ${cleanLogText || logRes.statusText || 'Non-JSON response'}` };
+                    }
                     
                     if(logData.success) {
                         localStorage.setItem('bingo_user_phone', phone); localStorage.setItem('bingo_user_pass', pass); 
                         processLoginSuccess(logData.user); 
                     } else {
-                        alert(currentLang === 'AM' ? "እባክዎ ዳግም ይግቡ (Login)" : "Please login again");
+                        alert(logData.message || (currentLang === 'AM' ? "እባክዎ ዳግም ይግቡ (Login)" : "Please login again"));
                         document.getElementById('start-btn').disabled = false;
                         document.getElementById('start-btn').innerText = currentLang === 'AM' ? "ግባ (LOGIN)" : "LOGIN";
                     }
@@ -1534,7 +1550,8 @@
                 document.getElementById('start-btn').innerText = isLoginMode ? (currentLang === 'AM' ? "ግባ (LOGIN)" : "LOGIN") : (currentLang === 'AM' ? "ወደ ጌም ግባ (REGISTER)" : "REGISTER"); 
             }
         } catch(e) {
-            alert(currentLang === 'AM' ? "ኮኔክሽን ተቋርጧል! እባክዎ ኢንተርኔትዎን አረጋግጠው እንደገና ይሞክሩ።" : "Connection lost! Please check your internet.");
+            const errDetail = (e && e.message) ? e.message : String(e);
+            alert((currentLang === 'AM' ? "የሰርቨር ስህተት፡ " : "Server Error: ") + errDetail);
             document.getElementById('start-btn').disabled = false; 
             document.getElementById('start-btn').innerText = isLoginMode ? (currentLang === 'AM' ? "ግባ (LOGIN)" : "LOGIN") : (currentLang === 'AM' ? "ወደ ጌም ግባ (REGISTER)" : "REGISTER"); 
         }

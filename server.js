@@ -97,19 +97,32 @@ app.use(express.static(path.join(__dirname)));
 // MONGOOSE SCHEMAS & MODELS
 // ══════════════════════════════════════════════════
 const UserSchema = new mongoose.Schema({
-    telegramId: { type: String, unique: true, index: true },
+    userId: { type: String, sparse: true, index: true },
+    telegramId: { type: String, unique: true, sparse: true, index: true },
     name: String,
     username: String,
-    phone: String,
+    phone: { type: String, unique: true, sparse: true, index: true },
+    password: { type: String },
+    fingerprint: { type: String },
     balance: { type: Number, default: 0 },
     bonusBalance: { type: Number, default: 0 },
+    bonus: { type: Number, default: 0 },
+    mainBalance: { type: Number, default: 0 },
+    playBalance: { type: Number, default: 0 },
+    registrationBonusClaimed: { type: Boolean, default: false },
+    played: { type: Number, default: 0 },
+    won: { type: Number, default: 0 },
+    totalWon: { type: Number, default: 0 },
     role: { type: String, default: 'player' },
     isBlocked: { type: Boolean, default: false },
     referredBy: String,
-    referralCode: { type: String, unique: true },
+    referralCode: { type: String, unique: true, sparse: true },
     referralEarnings: { type: Number, default: 0 },
     registeredAt: { type: Date, default: Date.now },
     lastActive: { type: Date, default: Date.now }
+}, {
+    autoIndex: false,
+    strict: false
 });
 
 const DepositSchema = new mongoose.Schema({
@@ -452,13 +465,20 @@ async function handleSmsWebhook(req, res) {
                 await smsDoc.save().catch(() => {});
 
                 // Update user balance
-                const user = await User.findOne({ telegramId: pendingDeposit.userId });
+                const user = await User.findOne({
+                    $or: [
+                        { telegramId: pendingDeposit.userId },
+                        { phone: pendingDeposit.userId },
+                        { userId: pendingDeposit.userId }
+                    ]
+                });
                 if (user) {
                     user.balance = (user.balance || 0) + amount;
+                    user.mainBalance = (user.mainBalance || 0) + amount;
                     await user.save();
 
-                    // Notify user via Telegram
-                    if (bot) {
+                    // Notify user via Telegram if user has a valid Telegram ID
+                    if (bot && user.telegramId && !user.telegramId.startsWith('web_')) {
                         bot.sendMessage(user.telegramId, 
                             `✅ **የ Phoenix Bingo አካውንቶ በ ${amount} ብር ተሞልቷል!**\n` +
                             `የግብይት ቁጥር፡ ${trx || 'Auto-Verified'}\n` +
@@ -506,6 +526,31 @@ app.post('/api/finance/verify', (req, res) => {
     return res.status(401).json({ error: 'Invalid finance credentials' });
 });
 
+// In-memory store fallback when MongoDB is running in offline/memory mode
+const inMemoryUsers = new Map();
+
+function formatUserResponse(u) {
+    const raw = (u && typeof u.toObject === 'function') ? u.toObject() : (u || {});
+    const mainBal = raw.mainBalance ?? raw.balance ?? 0;
+    const playBal = raw.playBalance ?? raw.bonusBalance ?? raw.bonus ?? 0;
+    return {
+        phone: raw.phone || raw.userId || '',
+        name: raw.name || 'Player',
+        password: raw.password || '',
+        balance: mainBal,
+        bonusBalance: playBal,
+        mainBalance: mainBal,
+        playBalance: playBal,
+        registrationBonusClaimed: !!raw.registrationBonusClaimed,
+        role: raw.role || 'player',
+        refCode: raw.referralCode || raw.refCode || raw.phone || '',
+        referralCode: raw.referralCode || raw.refCode || '',
+        referredBy: raw.referredBy || '',
+        played: raw.played ?? 0,
+        won: raw.won ?? raw.totalWon ?? 0
+    };
+}
+
 // User Info Endpoint
 app.post('/api/user/info', async (req, res) => {
     try {
@@ -520,13 +565,172 @@ app.post('/api/user/info', async (req, res) => {
                 username: username || '',
                 referralCode: 'P' + Math.floor(100000 + Math.random() * 900000),
                 balance: 0,
-                bonusBalance: 0
+                bonusBalance: 0,
+                mainBalance: 0,
+                playBalance: 0
             });
             await user.save().catch(() => {});
         }
         res.json({ success: true, user });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// User Registration Endpoint
+app.post('/api/register', async (req, res) => {
+    try {
+        const { phone, password, name, refCode, fingerprint } = req.body || {};
+        const cleanPhone = (phone || '').trim();
+        const cleanPass = (password || '').trim();
+        const cleanName = (name || '').trim();
+
+        if (!cleanPhone || !cleanPass || !cleanName) {
+            return res.status(400).json({ success: false, message: 'ስልክ ቁጥር፣ የይለፍ ቃል እና ስም ያስፈልጋሉ (Phone, password, and name are required)' });
+        }
+
+        let existingUser = null;
+        if (mongoose.connection.readyState === 1) {
+            existingUser = await User.findOne({
+                $or: [
+                    { phone: cleanPhone },
+                    { telegramId: cleanPhone },
+                    { userId: cleanPhone }
+                ]
+            });
+        } else {
+            existingUser = inMemoryUsers.get(cleanPhone);
+        }
+
+        if (existingUser) {
+            return res.status(400).json({ success: false, message: 'ይህ ስልክ ቁጥር ቀደም ሲል ተመዝግቧል! እባክዎ ይግቡ (Phone number already registered. Please login.)' });
+        }
+
+        const referralCode = 'P' + Math.floor(100000 + Math.random() * 900000);
+        const userData = {
+            userId: cleanPhone,
+            telegramId: 'web_' + cleanPhone,
+            phone: cleanPhone,
+            password: cleanPass,
+            name: cleanName,
+            fingerprint: fingerprint || '',
+            referredBy: (refCode || '').trim(),
+            referralCode,
+            balance: 0,
+            bonusBalance: 15,
+            bonus: 15,
+            mainBalance: 0,
+            playBalance: 15,
+            registrationBonusClaimed: true,
+            role: 'player',
+            played: 0,
+            won: 0,
+            totalWon: 0,
+            registeredAt: new Date(),
+            lastActive: new Date()
+        };
+
+        let savedUser = userData;
+        if (mongoose.connection.readyState === 1) {
+            const newUser = new User(userData);
+            await newUser.save();
+            savedUser = newUser;
+        }
+        inMemoryUsers.set(cleanPhone, userData);
+
+        return res.status(201).json({
+            success: true,
+            user: formatUserResponse(savedUser)
+        });
+    } catch (err) {
+        console.error('Registration error:', err);
+        if (err.code === 11000) {
+            return res.status(400).json({ success: false, message: 'ይህ ስልክ ቁጥር ቀደም ሲል ተመዝግቧል! እባክዎ ይግቡ (Phone number already registered. Please login.)' });
+        }
+        return res.status(500).json({ success: false, message: err.message || 'Registration failed' });
+    }
+});
+
+// User Login Endpoint
+app.post('/api/login', async (req, res) => {
+    try {
+        const { phone, password } = req.body || {};
+        const cleanPhone = (phone || '').trim();
+        const cleanPass = (password || '').trim();
+
+        if (!cleanPhone || !cleanPass) {
+            return res.status(400).json({ success: false, message: 'ስልክ እና የይለፍ ቃል ያስፈልጋል (Phone and password are required)' });
+        }
+
+        let user = null;
+        if (mongoose.connection.readyState === 1) {
+            user = await User.findOne({
+                $or: [
+                    { phone: cleanPhone },
+                    { telegramId: cleanPhone },
+                    { userId: cleanPhone }
+                ]
+            });
+        }
+        if (!user) {
+            user = inMemoryUsers.get(cleanPhone);
+        }
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'አካውንት አልተገኘም! እባክዎ መጀመሪያ ይመዝገቡ (Account not found. Please register first.)' });
+        }
+
+        if (user.password && user.password !== cleanPass) {
+            return res.status(401).json({ success: false, message: 'የተሳሳተ የይለፍ ቃል (Incorrect password)' });
+        }
+
+        if (user.isBlocked) {
+            return res.status(403).json({ success: false, message: 'አካውንትዎ ታግዷል (Your account is blocked)' });
+        }
+
+        user.lastActive = new Date();
+        if (typeof user.save === 'function') {
+            await user.save().catch(() => {});
+        }
+
+        return res.json({
+            success: true,
+            user: formatUserResponse(user)
+        });
+    } catch (err) {
+        console.error('Login error:', err);
+        return res.status(500).json({ success: false, message: err.message || 'Login failed' });
+    }
+});
+
+// User Profile / Balance Endpoint
+app.get('/api/getUser/:phone', async (req, res) => {
+    try {
+        const cleanPhone = (req.params.phone || '').trim();
+        let user = null;
+        if (mongoose.connection.readyState === 1) {
+            user = await User.findOne({
+                $or: [
+                    { phone: cleanPhone },
+                    { telegramId: cleanPhone },
+                    { userId: cleanPhone }
+                ]
+            });
+        }
+        if (!user) {
+            user = inMemoryUsers.get(cleanPhone);
+        }
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        return res.json({
+            success: true,
+            user: formatUserResponse(user)
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
     }
 });
 
