@@ -1,0 +1,18 @@
+{
+  "name": "phoenix-bingo",
+  "version": "1.0.0",
+  "description": "Phoenix Bingo Ultimate Live VIP Multiplayer Game",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node --max-old-space-size=450 server.js",
+    "start": "node --max-old-space-size=450 server.js",
+    "build": "node -c server.js",
+    "test": "node test/platformRules.test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "mongoose": "^7.8.6",
+    "node-telegram-bot-api": "^0.64.0",
+    "socket.io": "^4.8.4"
+  }
+}

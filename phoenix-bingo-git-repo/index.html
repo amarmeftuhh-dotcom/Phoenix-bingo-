@@ -1,0 +1,2175 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PHOENIX BINGO - VIP</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        /* 🟢 VIP Gold & Dark Theme 🟢 */
+        :root { 
+            --bg-dark: #0b0f19; 
+            --panel: #151e32; 
+            --cyan: #38bdf8; 
+            --text-gray: #94a3b8; 
+            --white: #ffffff; 
+            --gold: #f0d07d; 
+            --gold-grad: linear-gradient(135deg, #fceabb, #f8b500); 
+            --red: #ef4444;
+        }
+        
+        /* 🟢 PREVENT HORIZONTAL SCROLLING 🟢 */
+        html, body { 
+            background-color: var(--bg-dark); 
+            color: var(--white); 
+            font-family: 'Segoe UI', Roboto, sans-serif; 
+            margin: 0; padding: 0; 
+            width: 100vw; height: 100vh;
+            overflow: hidden; 
+        }
+
+        .page { 
+            display: none; 
+            width: 100%; height: calc(100vh - 65px); 
+            overflow-y: auto; 
+            overflow-x: hidden; 
+            -webkit-overflow-scrolling: touch;
+            padding: 10px; box-sizing: border-box;
+            will-change: transform;
+        }
+        .active-page { display: block; animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* 🟢 AUTH PAGE 🟢 */
+        #auth-page.active-page { display: flex !important; flex-direction: column; align-items: center; justify-content: center; height: 100vh; padding: 0; margin: 0; box-sizing: border-box; }
+        .auth-card { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(20px); padding: 35px 25px; border-radius: 25px; width: 90%; max-width: 360px; text-align: center; border: 1px solid rgba(240, 208, 125, 0.3); box-shadow: 0 15px 35px rgba(0, 0, 0, 0.9); display: flex; flex-direction: column;}
+        .input-group { margin-bottom: 12px; position: relative; width: 100%;}
+        .auth-input { width: 100%; padding: 14px 15px; border-radius: 12px; border: 1px solid rgba(240, 208, 125, 0.5); background: rgba(0,0,0,0.6); color: white; box-sizing: border-box; font-family: inherit; font-size: 14px; }
+        .auth-input:focus { border-color: var(--gold); outline: none; box-shadow: 0 0 10px rgba(248, 181, 0, 0.5); }
+        .auth-btn { width: 100%; padding: 15px; background: var(--gold-grad); color: #000; border: none; border-radius: 12px; font-weight: 900; font-size: 15px; cursor: pointer; text-transform: uppercase; box-shadow: 0 5px 15px rgba(248, 181, 0, 0.4);}
+        .auth-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; background: var(--panel); color: var(--text-gray);}
+        .eye-icon { position: absolute; right: 15px; top: 14px; cursor: pointer; font-size: 16px; opacity: 0.7; }
+        
+        body:has(#auth-page.active-page) #global-header, body:has(#auth-page.active-page) #navbar { display: none !important; }
+
+        /* 🟢 HEADER 🟢 */
+        .top-balance { background: var(--bg-dark); padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(240, 208, 125, 0.15); height: 50px; box-sizing: border-box; }
+        .hdr-wallets-left { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+        .pill-wallet { background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 2px 10px; display: flex; justify-content: space-between; align-items: center; min-width: 140px; }
+        .pill-wallet span.title { font-size: 9px; font-weight: 900; color: #94a3b8;}
+        .pill-wallet span.amt { font-size: 12px; font-weight: 900; font-family: monospace; color: white;}
+        .hdr-user-right { display: flex; align-items: center; gap: 8px; text-align: right; background: rgba(0,0,0,0.4); padding: 4px 6px 4px 15px; border-radius: 30px; border: 1px solid rgba(240, 208, 125, 0.2); cursor: pointer; }
+        .hdr-user-right .name { font-size: 11px; font-weight: 900; color: white; margin-bottom: 2px; }
+        .hdr-user-right .phone { display: none; }
+        .hdr-user-right .icon { width: 30px; height: 30px; background: var(--gold-grad); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: black; font-weight: 900; border: 2px solid white; }
+
+        /* 🟢 STICKY HOME HEADER 🟢 */
+        .home-sticky-header { position: sticky; top: 0; z-index: 1500; background: var(--bg-dark); padding: 5px; border-bottom: 2px solid rgba(240, 208, 125, 0.2); width: 100%; box-sizing: border-box; box-shadow: 0 5px 15px rgba(0,0,0,0.9); }
+        .timer-jp-container { display: flex; justify-content: space-between; align-items: stretch; gap: 8px; margin-bottom: 0; width: 100%; box-sizing: border-box; }
+        .new-timer-box { flex: 1; background: linear-gradient(145deg, var(--panel), #0a0f18); border: 1px solid rgba(240, 208, 125, 0.4); border-radius: 8px; padding: 4px 5px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+        .nt-status { color: var(--gold); font-size: 9px; font-weight: bold; margin-bottom: 2px; text-transform: uppercase;}
+        .nt-value { color: white; font-size: 16px; font-weight: 900; font-family: 'Arial Black', sans-serif;}
+        #timer { color: var(--gold); font-size: 18px; }
+        .grid-subtitle-row { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; margin-bottom: 2px; margin-top: 5px; }
+        .gs-left { color: var(--gold); font-size: 12px; font-weight: bold; }
+        .gs-right { font-size: 13px; font-weight: 900; color: var(--gold); } 
+        
+        /* 🟢 NUMBER GRID - FIXED SCROLL ISSUE 🟢 */
+        .num-grid { 
+            display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px; 
+            width: 100%; box-sizing: border-box; 
+            padding: 8px 0 250px 0; 
+        } 
+        .num-btn { 
+            width: 100%; aspect-ratio: 1 / 1; background: var(--panel); border: 1px solid rgba(255, 255, 255, 0.1); 
+            color: var(--gold); display: flex; align-items: center; justify-content: center; 
+            font-size: clamp(10px, 2.5vw, 14px); font-weight: 900; border-radius: 5px; cursor: pointer; 
+            user-select: none; box-sizing: border-box; 
+            -webkit-tap-highlight-color: transparent; 
+            touch-action: manipulation; 
+        }
+        
+        .num-btn.bought-by-me { 
+            background: #ffffff !important; 
+            color: #000000 !important; 
+            border-color: #ffffff !important; 
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.8), inset 0 0 5px rgba(0,0,0,0.3) !important;
+        }
+        
+        .num-btn.taken { opacity: 0.3; background: rgba(255,255,255,0.05); color: #475569; pointer-events: none;}
+
+        /* 🟢 BET SLIP POPUP 🟢 */
+        .bet-slip-popup { position: fixed; bottom: 80px; left: 50%; transform: translate(-50%, 150%); width: 100%; max-width: 600px; background: rgba(11, 15, 25, 0.98); border-top: 2px solid var(--gold); border-radius: 20px 20px 0 0; padding: 10px 15px 12px 15px; box-shadow: 0 -10px 30px rgba(0,0,0,0.9); z-index: 2000; display: flex; flex-direction: column; align-items: center; transition: transform 0.3s ease; box-sizing: border-box; }
+        .bet-slip-popup.show { transform: translate(-50%, 0); } 
+        .preview-tickets-wrapper { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 8px; margin-bottom: 2px; width: 100%; scrollbar-width: none; min-height: 48px; padding-bottom: 4px; }
+        .preview-tickets-wrapper::-webkit-scrollbar { display: none; }
+        .preview-t-card { background: white; min-width: 90px; flex: 0 0 auto; border-radius: 8px; overflow: hidden; border: 2px solid var(--gold); padding: 2px;}
+        .preview-t-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; background: #94a3b8;}
+        .preview-t-head { color: #000; height: 12px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 8px; background: var(--gold-grad);}
+        .preview-t-cell { background: #fff; height: 14px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 9px; color: #000;}
+
+        /* 🟢 TICKETS PAGE STYLES 🟢 */
+        #ticket-page.active-page { display: flex !important; flex-direction: column; height: calc(100svh - 60px); overflow: hidden; padding: 8px; box-sizing: border-box; }
+        
+        .ticket-top-section { flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; position: relative;}
+        
+        .t-header-row { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.4); padding: 3px 8px; border-radius: 8px; border: 1px solid rgba(240, 208, 125, 0.2); }
+        .t-header-row .round { font-size: 10px; font-weight: bold; color: var(--text-gray); }
+        .t-header-row .balls { font-size: 11px; font-weight: bold; color: var(--bg-dark); background: var(--gold-grad); padding: 2px 8px; border-radius: 6px; border: 1px solid #fff; }
+        .t-header-row .sound { font-size: 16px; cursor: pointer; color: var(--gold); }
+
+        .t-caller-row { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+        
+        .caller-box { display: flex; align-items: center; justify-content: center; background: var(--panel); border-radius: 8px; border: 2px solid var(--gold); width: 48px; height: 48px; flex-shrink: 0; }
+        .caller-ball { background: var(--gold-grad); color: #000; border-radius: 50%; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; box-shadow: 0 0 10px rgba(248, 181, 0, 0.4); }
+        
+        .history-top-bar { display: flex; gap: 6px; overflow-x: auto; padding: 4px 6px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; align-items: center; scrollbar-width: none; flex-grow: 1; height: 48px; box-sizing: border-box;}
+        .history-top-bar::-webkit-scrollbar { display: none; }
+        .hist-top-ball { min-width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--gold); background: var(--bg-dark); color: var(--gold); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; flex-shrink: 0;}
+
+        .golden-prize-box { background: linear-gradient(135deg, #2a1f0c, #1a1305); border: 1.5px solid var(--gold); padding: 6px 10px; border-radius: 8px; text-align: center; display: flex; flex-direction: column; justify-content: center;}
+        .golden-prize-box span { font-size: 10px; color: var(--gold); font-weight: bold; }
+        .golden-prize-box b { font-size: 15px; color: #ffde82; font-weight: 900; margin-top: 1px; text-shadow: 0 0 8px #f8b500, 0 0 15px #f8b500;}
+
+        .t-mb-toggle-bar { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; margin-bottom: 4px;}
+        #t-info { font-size: 11px; color: var(--gold); font-weight: bold; }
+        .t-btn-mb { background: rgba(0,0,0,0.5); border: 1px solid var(--gold); color: var(--white); border-radius: 6px; padding: 4px 10px; font-size: 10px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+
+        /* 🟢 MASTERBOARD SIZING 🟢 */
+        #ticket-mb-container { display: none; width: 85%; max-width: 320px; margin: 0 auto 6px auto; flex: 0 0 24vh; min-height: 0; }
+        #ticket-page.show-mb #ticket-mb-container { display: flex; flex-direction: column; }
+        
+        #ticket-master-board { 
+            display: grid; grid-template-rows: auto repeat(15, minmax(0, 1fr)); grid-template-columns: repeat(5, 1fr); 
+            gap: 1px; background: #000; border: 2px solid var(--gold); border-radius: 8px; width: 100%; height: 100%; padding: 2px; box-sizing: border-box;
+        }
+        #ticket-master-board .mb-head { background: var(--gold-grad); color: black; display: flex; align-items: center; justify-content: center; font-size: 1.2vh; font-weight: 900; padding: 1px 0; min-height: 0;}
+        #ticket-master-board .mb-cell { background: var(--panel); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.4vh; line-height: 1; font-weight: bold; min-height: 0; padding: 0;}
+        
+        .mb-cell.called { background: var(--gold-grad) !important; color: #000 !important; font-weight: 900;}
+        .mb-cell.current { background: #fff !important; color: black !important; font-weight: 900; transform: scale(1.1); z-index: 2; border: 1px solid var(--gold);}
+
+        /* 🟢 CARDS SIZING & SCROLLING 🟢 */
+        #ticket-list { 
+            flex-grow: 1; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; 
+            width: 100%; box-sizing: border-box; overflow-y: auto; align-content: start; min-height: 0; padding-bottom: 80px; padding-top: 4px;
+            -webkit-overflow-scrolling: touch; 
+        }
+        
+        #ticket-page.show-mb #ticket-list { 
+            grid-template-rows: repeat(2, minmax(0, 1fr)); 
+            gap: 4px; 
+            padding-bottom: 10px; 
+            overflow: hidden; 
+        } 
+
+        .t-card { background: #fff; border-radius: 8px; padding: 4px; border: 2px solid var(--gold); box-shadow: 0 4px 10px rgba(0,0,0,0.5); display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; height: 100%;}
+        
+        #ticket-page.show-mb .t-card { padding: 2px; border-radius: 6px; border-width: 1px;}
+
+        .t-id-badge { background: #000; color: var(--gold); font-size: 10px; font-weight: 900; text-align: center; padding: 2px 0; border-bottom: 1px solid var(--gold); }
+        .t-grid { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(5, minmax(0, 1fr)); gap: 1px; background: #000; flex-grow: 1; min-height: 0; border-bottom: 1px solid #000; border-left: 1px solid #000; border-right: 1px solid #000;}
+        
+        .t-cell { background: #fff; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: clamp(8px, 1.8vh, 16px); color: #000; min-height: 0; }
+        #ticket-page.show-mb .t-cell { font-size: clamp(7px, 1.5vh, 12px); }
+
+        .t-cell.marked { background: var(--gold-grad) !important; color: #000 !important; box-shadow: inset 0 0 5px rgba(0,0,0,0.5); }
+
+        /* 🟢 Win Popup 🟢 */
+        .bingo-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(4, 8, 15, 0.98); z-index: 9999; display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; backdrop-filter: blur(15px);}
+        .bling-text { font-size: 14px; font-weight: bold; color: var(--cyan); margin-bottom: 15px; animation: blinker 1.5s linear infinite; text-transform: uppercase; letter-spacing: 3px;}
+        @keyframes blinker { 50% { opacity: 0.4; } }
+        
+        .winner-card { background: var(--panel); border: 1px solid rgba(240, 208, 125, 0.2); border-radius: 20px; padding: 25px 15px; box-shadow: 0 20px 40px rgba(0,0,0,0.9); width: 85%; max-width: 320px; box-sizing: border-box; max-height: 90vh; overflow-y: auto; position: relative; z-index: 10001; }
+        .bingo-text { font-size: clamp(28px, 8vw, 36px); font-weight: 900; color: #ffffff; margin: 0; text-shadow: 0 0 15px rgba(248, 181, 0, 0.5); letter-spacing: 4px; font-family: 'Arial Black', sans-serif;}
+        
+        @keyframes superGlow {
+            0%, 100% { box-shadow: 0 0 15px #ffb300, 0 0 30px #ffb300, inset 0 0 5px #ffffff; transform: scale(1); }
+            50% { box-shadow: 0 0 25px #ffb300, 0 0 45px #ffea70, inset 0 0 8px #ffffff; transform: scale(1.1); }
+        }
+        .win-gold-ball {
+            background: linear-gradient(135deg, #ffea70 0%, #ff9d00 100%);
+            border-radius: 50%;
+            width: 28px; 
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #000;
+            font-size: 15px;
+            font-weight: 900;
+            border: 2px solid #fff;
+            animation: superGlow 1.5s infinite alternate ease-in-out;
+            position: relative;
+            z-index: 2;
+        }
+
+        .confetti-rain { position: fixed; top: -10vh; z-index: 10000; font-size: 24px; animation: rainDown linear forwards; pointer-events: none; opacity: 0.8;}
+        @keyframes rainDown { to { transform: translateY(110vh) rotate(360deg); } }
+
+        /* 🟢 BOTTOM NAVIGATION 🟢 */
+        .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 65px; background: rgba(11, 15, 25, 0.98); border-top: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: space-around; align-items: center; z-index: 3000; }
+        .nav-item { text-align: center; color: #64748b; font-size: 10px; cursor: pointer; flex: 1; transition: 0.3s; font-weight: bold; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; }
+        .nav-icon { font-size: 20px; transition: 0.3s; margin-bottom: 2px; }
+        .nav-item.active { color: var(--gold); }
+        .nav-item.active .nav-icon { transform: translateY(-3px); font-size: 24px; filter: drop-shadow(0 0 8px var(--gold)); }
+
+        .ticket-alert-arrow { display: none; position: absolute; top: -16px; left: 50%; color: #ef4444; font-size: 18px; animation: bounceBlinkArrow 0.7s infinite; z-index: 4000; pointer-events: none; }
+        @keyframes bounceBlinkArrow { 0%, 100% { transform: translateX(-50%) translateY(0); opacity: 1; } 50% { transform: translateX(-50%) translateY(-6px); opacity: 0.2; } } 
+        
+        /* 🟢 WALLET PAGE & PREMIUM BUTTONS 🟢 */
+        #wallet-page.active-page { display: block; overflow-y: auto; padding-bottom: 90px; }
+        .wallet-card { background: linear-gradient(135deg, var(--panel), #0a0f18); border-radius: 20px; padding: 25px 20px; margin-bottom: 20px; border: 1px solid rgba(240, 208, 125, 0.15); text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.8); display: flex; flex-direction: column;}
+        
+        .btn-action-row { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+        
+        .w-btn-premium { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; border-radius: 50px; padding: 8px 16px; cursor: pointer; transition: all 0.2s ease; position: relative; overflow: hidden; text-align: left; border: 1px solid rgba(255,255,255,0.1); gap: 12px;}
+        .w-btn-premium:active { transform: scale(0.96); opacity: 0.9; }
+        
+        .w-dep { background: linear-gradient(135deg, #10b981, #047857); box-shadow: 0 6px 15px rgba(16, 185, 129, 0.4); } 
+        .w-wit { background: linear-gradient(135deg, #f97316, #c2410c); box-shadow: 0 6px 15px rgba(249, 115, 22, 0.4); } 
+        
+        .w-icon-box { font-size: 16px; background: rgba(255,255,255,0.2); width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid #fff; margin: 0; box-shadow: 0 0 10px rgba(255,255,255,0.3); flex-shrink: 0;}
+        .w-txt-group { display: flex; flex-direction: column; flex-grow: 1;}
+        .w-main-txt { color: #fff; font-size: 12px; font-weight: 900; letter-spacing: 1px; }
+        .w-sub-txt { color: rgba(255,255,255,0.8); font-size: 9px; font-weight: bold; }
+        .w-arrow { margin-left: auto; color: white; opacity: 0.6; font-size: 14px; font-weight: bold; }
+
+        /* WALLET HISTORY STYLES */
+        #wallet-history-list { overflow-y: auto; padding-bottom: 30px; }
+        .tx-card { padding: 15px; background: rgba(0,0,0,0.4); border-radius: 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.05); }
+        .tx-left { display: flex; flex-direction: column; gap: 5px; text-align: left; }
+        .tx-type { font-weight: 900; font-size: 12px; color: white; text-transform: uppercase;}
+        .tx-date { color: var(--text-gray); font-size: 10px; font-weight: bold;}
+        .tx-right { text-align: right; display: flex; flex-direction: column; gap: 5px; }
+        .tx-amt { font-size: 16px; font-weight: 900; font-family: monospace; }
+        .tx-status { font-size: 10px; font-weight: bold; padding: 4px 10px; border-radius: 8px; display: inline-block; width: max-content; text-transform: uppercase; }
+        
+        .stat-pending { background: rgba(248, 181, 0, 0.2); color: var(--gold); border: 1px solid var(--gold); }
+        .stat-approved { background: rgba(20, 184, 166, 0.2); color: #2dd4bf; border: 1px solid #2dd4bf; }
+        .stat-rejected { background: rgba(244, 63, 94, 0.2); color: #fb7185; border: 1px solid #fb7185; }
+        .stat-win { background: rgba(56, 189, 248, 0.2); color: var(--cyan); border: 1px solid var(--cyan); }
+
+        /* 🟢 PROFILE PAGE 🟢 */
+        #profile-page.active-page { display: block; overflow-y: auto; padding-bottom: 100px; } 
+        .profile-stat-box { background: rgba(0,0,0,0.4); border: 1px solid rgba(240, 208, 125, 0.2); border-radius: 15px; padding: 15px; text-align: center; margin-bottom: 12px; }
+        .prof-avatar-circle { width: 65px; height: 65px; background: var(--gold-grad); border-radius: 50%; margin: 0 auto 10px auto; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 900; color: #000; border: 3px solid white;}
+        .prof-list-btn { background: var(--panel); border: 1px solid rgba(255,255,255,0.05); color: white; padding: 16px 15px; border-radius: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-size: 13px; font-weight: bold; width: 100%; box-sizing: border-box; }
+        .promo-special-btn { position: relative; overflow: hidden; background: linear-gradient(45deg, var(--panel), #0a0f18); border: 1px solid var(--gold); }
+        .promo-special-btn::after { content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent); animation: shineGlow 2.5s infinite; }
+        @keyframes shineGlow { 0% { left: -100%; } 100% { left: 200%; } }
+        
+        /* 🟢 Rank Page 🟢 */
+        #rank-page.active-page { display: block; overflow-y: auto; padding-bottom: 90px; }
+        .rank-header-banner { background: linear-gradient(135deg, var(--bg-dark), var(--panel)); border: 1px solid var(--gold); border-radius: 12px; margin-bottom: 20px; text-align: center; padding: 12px;}
+        .rank-header-banner h1 { margin:0; font-size:20px; color:var(--gold); font-weight:900; text-transform:uppercase;}
+        .podium-container { display: flex; justify-content: center; align-items: flex-end; gap: 6px; margin-bottom: 30px; padding-top: 40px; }
+        .podium-box { display: flex; flex-direction: column; align-items: center; border-radius: 10px 10px 0 0; padding: 10px 4px; width: 30%; text-align: center; position: relative; }
+        .podium-1 { background: linear-gradient(to top, #422006, #78350f, #dcb360); border: 2px solid #e3c582; border-bottom: none; transform: scale(1.1); z-index: 2; height: 110px; justify-content: flex-end; }
+        .podium-2 { background: linear-gradient(to top, #1e293b, #334155, #94a3b8); border: 2px solid #e2e8f0; border-bottom: none; height: 85px; justify-content: flex-end;}
+        .podium-3 { background: linear-gradient(to top, #451a03, #78350f, #b45309); border: 2px solid #fdba74; border-bottom: none; height: 75px; justify-content: flex-end;}
+        .podium-avatar { border-radius: 50%; display: flex; justify-content: center; align-items: center; font-weight: 900; margin-bottom: 5px; position: absolute; }
+        .p-1-ava { border: 2px solid #e3c582; background: #000; color: #e3c582; width: 45px; height: 45px; font-size: 20px; top: -25px;}
+        .p-2-ava { border: 2px solid #e2e8f0; background: #000; color: #e2e8f0; width: 35px; height: 35px; font-size: 14px; top: -18px;}
+        .p-3-ava { border: 2px solid #fdba74; background: #000; color: #fdba74; width: 35px; height: 35px; font-size: 14px; top: -18px;}
+        .podium-name { font-size: 10px; color: white; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; margin-bottom: 4px; }
+        .podium-prize { font-size: 10px; color: var(--gold); font-weight: 900; background: rgba(0,0,0,0.8); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(240, 208, 125, 0.3);}
+        .crown-icon { position: absolute; top: -55px; font-size: 26px; animation: floatCrown 2s infinite ease-in-out; }
+        @keyframes floatCrown { 0%, 100% { transform: translateY(0) rotate(-10deg); } 50% { transform: translateY(-8px) rotate(10deg); } }
+        .rank-card { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.4); padding: 10px 12px; border-radius: 10px; border-left: 4px solid var(--gold); margin-bottom: 8px;}
+        .rank-badge { width: 24px; height: 24px; border-radius: 50%; background: #000; color: var(--gold); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 900; margin-right: 10px; border: 1px solid var(--gold); }
+
+        /* 🟢 DEPOSIT, WITHDRAW & PROMO MODALS 🟢 */
+        .trx-modal-overlay, .pw-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); z-index: 9999; display: none; flex-direction: column; justify-content: flex-end; align-items: center; }
+        .pw-modal-overlay { justify-content: center; }
+        .trx-modal { background: linear-gradient(to top, var(--bg-dark), var(--panel)); border-top: 4px solid var(--gold); width: 100%; border-radius: 35px 35px 0 0; padding: 25px 20px 40px 20px; box-sizing: border-box; transform: translateY(100%); transition: transform 0.3s ease; max-height: 90vh; overflow-y: auto;}
+        .trx-modal.show { transform: translateY(0); }
+        .trx-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; border-bottom: 1px solid rgba(240, 208, 125, 0.1); padding-bottom: 15px;}
+        .trx-title { color: var(--gold); font-size: 20px; font-weight: 900; margin: 0; text-transform: uppercase; }
+        .trx-close { color: #fff; font-size: 22px; cursor: pointer; font-weight: bold; background: none; border: none; opacity: 0.8;}
+        .trx-group { background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 20px 15px 15px 15px; margin-bottom: 20px; text-align: left; position: relative; }
+        .trx-group-label { position: absolute; top: -12px; left: 15px; background: var(--gold-grad); padding: 3px 12px; color: #000; font-size: 11px; font-weight: 900; text-transform: uppercase; border-radius: 8px; }
+        
+        /* 🟢 3 Bank Grid Setup 🟢 */
+        .bank-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .bank-btn { display: flex; align-items: center; justify-content: center; gap: 4px; background: rgba(0,0,0,0.5); color: white; border: 1px solid rgba(255,255,255,0.1); padding: 10px 4px; border-radius: 12px; font-size: 11px; font-weight: bold; cursor: pointer; transition: 0.3s;}
+        .bank-btn.active { background: var(--gold-grad); color: black; border: none; box-shadow: 0 5px 15px rgba(248, 181, 0, 0.5); transform: translateY(-2px);}
+        .bank-logo { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 900; border: 2px solid white;}
+        .logo-tb { background: #00b0f0; color: white; } 
+        .logo-cbe { background: #502179; color: #fdb913; font-size: 7px;}
+        .logo-mp { background: #059669; color: white; }
+
+        .trx-copy-box { background: rgba(0,0,0,0.4); border: 1px solid rgba(240, 208, 125, 0.4); padding: 15px; border-radius: 12px; display: none; justify-content: space-between; align-items: center; margin-top: 15px;}
+        .trx-copy-box.show { display: flex; }
+        .trx-input, .pw-input { width: 100%; background: rgba(0,0,0,0.5); border: 1px solid rgba(240, 208, 125, 0.3); color: white; padding: 15px; border-radius: 12px; box-sizing: border-box; font-size: 14px; text-align: center; font-weight: bold; transition: 0.3s;}
+        .trx-input:focus { border-color: var(--gold); outline: none; background: rgba(0,0,0,0.8);}
+        .trx-submit-btn { background: var(--gold-grad); color: #000; font-weight: 900; width: 100%; padding: 16px; border-radius: 14px; border: none; font-size: 15px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 5px 20px rgba(248, 181, 0, 0.5); margin-top: 10px;}
+        .pw-modal { background: linear-gradient(135deg, var(--panel), var(--bg-dark)); border-radius: 24px; padding: 30px 25px; width: 90%; max-width: 320px; border: 2px solid var(--gold); }
+        .pw-btn-row { display: flex; gap: 10px; margin-top: 20px; }
+        .pw-btn { flex: 1; padding: 12px; border-radius: 10px; font-weight: 900; border: none; cursor: pointer; text-transform: uppercase; font-size: 13px;}
+
+        body.paused-mode .mb-cell, body.paused-mode .num-btn, body.paused-mode .t-cell, body.paused-mode .mini-t-cell, body.paused-mode .caller-ball, body.paused-mode .hist-top-ball { filter: blur(15px) grayscale(100%) !important; opacity: 0.1 !important; pointer-events: none !important; transition: all 0.3s ease; }
+        #offline-alert { position: fixed; top: 0; left: 50%; transform: translate(-50%, -150%); background: rgba(239, 68, 68, 0.95); color: white; padding: 12px 25px; border-radius: 8px; font-weight: 900; font-size: 14px; z-index: 10000; transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); box-shadow: 0 4px 20px rgba(239, 68, 68, 0.6); display: flex; align-items: center; gap: 10px; pointer-events: none; opacity: 0; visibility: hidden; }
+        #offline-alert.show { transform: translate(-50%, 20px); opacity: 1; visibility: visible; }
+    </style>
+</head>
+<body>
+<div id="offline-alert">❌ ኢንተርኔት ተቋርጧል! (Internet is lost)</div>
+
+<div id="promo-claim-float" onclick="event.stopPropagation(); claimWebPromo()" style="display:none; position:fixed; top: 150px; right: 15px; z-index: 5000; background: var(--gold-grad); border: 2px solid #fff; border-radius: 12px; padding: 8px 12px; box-shadow: 0 4px 15px rgba(240, 208, 125, 0.6); text-align: center; cursor: pointer; animation: pulseClaimFloat 1.2s infinite;">
+    <div style="font-size: 22px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));">🎁</div>
+    <div style="font-size: 10px; font-weight: 900; color: #000; margin-top: 3px; line-height: 1.2; text-transform: uppercase;" id="lbl-bonus-claim">
+        ቦነስ ይውሰዱ<br><span id="promo-float-amt" style="font-size: 14px;">0</span> ETB
+    </div>
+</div>
+
+<div id="bingo-overlay" class="bingo-overlay">
+    <div class="bling-text" id="lbl-win-incoming">✨ ሽልማት ገቢ እየተደረገ ነው... ✨</div>
+    <div class="winner-card" id="winner-card-container"></div>
+</div>
+
+<!-- 🟢 DEPOSIT MODAL 🟢 -->
+<div id="dep-modal-overlay" class="trx-modal-overlay" onclick="closeDepositModal(event)">
+    <div id="dep-modal" class="trx-modal" onclick="event.stopPropagation()">
+        <div class="trx-header"><h3 class="trx-title" id="dep-title">Deposit</h3><button class="trx-close" onclick="closeDepositModal()">✖</button></div>
+        
+        <div style="background: rgba(240, 208, 125, 0.1); border: 1px solid rgba(240, 208, 125, 0.3); border-radius: 12px; padding: 12px; margin-bottom: 20px; font-size: 11px; color: var(--gold); text-align: center; line-height:1.5;" id="dynamic-dep-banner">
+            🎁 ልዩ ስጦታ<br>ከ 100 ብር ጀምሮ ገቢ ሲያደርጉ ተጨማሪ 20% ጉርሻ ያግኙ!
+        </div>
+
+        <div class="trx-group">
+            <div class="trx-group-label" id="lbl-dep-bank">1. ባንክ ይምረጡ</div>
+            <div class="bank-grid" id="dep-bank-grid">
+                <div class="bank-btn active" data-bankname="telebirr" onclick="selectBank('telebirr', this, 'dep')"><div class="bank-logo logo-tb">t</div> TeleBirr</div>
+                <div class="bank-btn" data-bankname="cbe" onclick="selectBank('cbe', this, 'dep')"><div class="bank-logo logo-cbe">CBE</div> CBE</div>
+                <div class="bank-btn" data-bankname="mpesa" onclick="selectBank('mpesa', this, 'dep')"><div class="bank-logo logo-mp">M</div> M-Pesa</div>
+            </div>
+            
+            <div id="dep-copy-box" class="trx-copy-box show">
+                <div>
+                    <small style="color:#94a3b8; font-size:10px; font-weight:bold;" id="lbl-bank-acc">የባንክ አካውንት:</small><br>
+                    <b id="m-dep-name" style="font-size:12px; color:white;">እዚህ ጋር ስምህን ፃፍ</b><br>
+                    <b id="m-dep-acc" style="font-size:16px; color:var(--gold); font-family:monospace; margin-top:2px; display:block;">0900000000</b>
+                </div>
+                <button style="background: var(--gold-grad); border: none; color: black; padding: 8px 12px; border-radius: 8px; font-weight: 900; cursor: pointer; font-size: 11px;" onclick="copyModalNumber('m-dep-acc')">Copy</button>
+            </div>
+        </div>
+        
+        <div class="trx-group">
+            <div class="trx-group-label" id="lbl-dep-info">2. መረጃ ያስገቡ</div>
+            <input type="number" id="m-dep-amt" class="trx-input" placeholder="የላኩት መጠን (Amount) - Min 50" style="margin-bottom: 12px;">
+            
+            <div style="display:flex; gap: 8px;">
+                <textarea id="m-dep-sms" class="trx-input" style="height: 60px; resize: none; text-align:left; font-size:12px; font-weight:normal; flex-grow:1;" placeholder="ከባንክ የተላከሎትን SMS ሙሉውን እዚህ Paste ያድርጉ..."></textarea>
+                <button onclick="pasteSMS()" style="background: rgba(0,0,0,0.5); border: 1px solid var(--gold); color: var(--gold); border-radius: 12px; padding: 0 15px; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(240, 208, 125, 0.2);" title="Paste">📋</button>
+            </div>
+        </div>
+        
+        <button class="trx-submit-btn" onclick="processNewDeposit()" id="m-dep-btn">ገቢ አድርግ (SUBMIT)</button>
+    </div>
+</div>
+
+<!-- 🟢 WITHDRAW MODAL 🟢 -->
+<div id="wit-modal-overlay" class="trx-modal-overlay" onclick="closeWithdrawModal(event)">
+    <div id="wit-modal" class="trx-modal" onclick="event.stopPropagation()">
+        <div class="trx-header"><h3 class="trx-title" id="wit-title">Withdraw</h3><button class="trx-close" onclick="closeWithdrawModal()">✖</button></div>
+        
+        <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 12px; padding: 12px; margin-bottom: 20px; font-size: 11px; color: #fca5a5; text-align: center; line-height:1.5;" id="dynamic-wit-banner">
+            ⚠️ <b>ማሳሰቢያ:</b> ለደህንነት ሲባል ገንዘብ ወጪ ማድረግ የሚቻለው <b>ሲመዘገቡ በተጠቀሙበት ስልክ ቁጥር</b> ብቻ ነው።
+        </div>
+
+        <div class="trx-group">
+            <div class="trx-group-label" id="lbl-wit-bank">1. ወጪ ማድረጊያ ባንክ</div>
+            <div class="bank-grid" id="wit-bank-grid">
+                <div class="bank-btn active" data-bankname="telebirr" onclick="selectBank('telebirr', this, 'wit')"><div class="bank-logo logo-tb">t</div> TeleBirr</div>
+                <div class="bank-btn" data-bankname="cbe" onclick="selectBank('cbe', this, 'wit')"><div class="bank-logo logo-cbe">CBE</div> CBE</div>
+                <div class="bank-btn" data-bankname="mpesa" onclick="selectBank('mpesa', this, 'wit')"><div class="bank-logo logo-mp">M</div> M-Pesa</div>
+            </div>
+        </div>
+        
+        <div class="trx-group">
+            <div class="trx-group-label" id="lbl-wit-info">2. መረጃ ያስገቡ</div>
+            <input type="tel" id="m-wit-phone" class="trx-input disabled-input" readonly style="opacity:0.6; pointer-events:none; margin-bottom: 12px; background: rgba(0,0,0,0.8); color: #cbd5e1;">
+            <input type="number" id="m-wit-amt" class="trx-input" placeholder="መጠን (Amount) - Min 50 ETB">
+        </div>
+        
+        <button class="trx-submit-btn" style="background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; box-shadow: 0 5px 20px rgba(239, 68, 68, 0.5);" onclick="processNewWithdraw()" id="m-wit-btn">ወጪ አድርግ</button>
+    </div>
+</div>
+
+<!-- 🟢 PROMO CODE MODAL 🟢 -->
+<div id="promo-modal-overlay" class="trx-modal-overlay" onclick="closePromoModal(event)">
+    <div class="trx-modal" onclick="event.stopPropagation()" style="background: linear-gradient(135deg, var(--bg-dark), var(--panel)); border-top: 4px solid var(--gold); border-radius: 35px 35px 0 0; padding-top: 35px;">
+        <button class="trx-close" onclick="closePromoModal()" style="position: absolute; top: 15px; right: 25px;">✖</button>
+        <div style="text-align: center; margin-bottom: 30px;">
+            <div style="font-size: 55px; margin-bottom: 5px;">🎁</div>
+            <h2 style="margin:0; color: var(--gold); font-size: 26px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px;">PHOENIX BINGO</h2>
+            <p style="margin: 8px 0 0 0; color: var(--text-gray); font-size: 13px; font-weight: bold;" id="lbl-promo-desc">የፕሮሞ ኮድ ያስገቡ (Redeem Promo Code)</p>
+        </div>
+        
+        <div class="trx-group" style="padding: 15px;">
+            <input type="text" id="m-promo-input" class="trx-input" placeholder="ENTER CODE HERE..." style="font-size: 18px; letter-spacing: 3px; text-transform: uppercase; padding: 18px; border-color: var(--gold);">
+        </div>
+        
+        <button class="trx-submit-btn" id="m-promo-btn" onclick="submitPromoCode()" style="font-size: 16px; padding: 18px;">አረጋግጥ (REDEEM)</button>
+    </div>
+</div>
+
+<div id="pw-modal-overlay" class="pw-modal-overlay">
+    <div class="pw-modal">
+        <h3 style="color: var(--gold); font-size: 16px; font-weight: 900; margin: 0 0 20px 0; text-align:center; letter-spacing: 1px;">CHANGE PASSWORD</h3>
+        <input type="password" id="pw-old" class="pw-input" placeholder="Old Password" style="margin-bottom: 12px;">
+        <input type="password" id="pw-new" class="pw-input" placeholder="New Password (min 4)" style="margin-bottom: 12px;">
+        <input type="password" id="pw-conf" class="pw-input" placeholder="Confirm New Password">
+        <div class="pw-btn-row">
+            <button class="pw-btn cancel" style="background:var(--panel); color:white; border: 1px solid rgba(255,255,255,0.1);" onclick="document.getElementById('pw-modal-overlay').style.display='none'">CANCEL</button>
+            <button class="pw-btn save" style="background:var(--gold-grad); color:#000; box-shadow: 0 4px 10px rgba(248, 181, 0, 0.4);" onclick="savePassword()">SAVE</button>
+        </div>
+    </div>
+</div>
+
+<!-- 🟢 AUTH PAGE 🟢 -->
+<div id="auth-page" class="page active-page">
+    <div class="auth-card" style="display:none;" id="manual-login-form">
+        <div style="text-align: center; margin-bottom: 25px;">
+            <div class="auth-logo-box" style="width:80px; height:80px; font-size:40px; margin: 0 auto 10px auto; background: var(--gold-grad); border-radius: 50%; display: flex; align-items: center; justify-content: center;">🎰</div>
+            <h1 style="margin: 0; font-size: 32px; font-weight: 900; letter-spacing: 2px;">
+                <span style="color: var(--gold);">PHOENIX</span> 
+                <span style="color: #ffffff;">BINGO</span>
+            </h1>
+            <div style="color: var(--cyan); font-size: 12px; font-weight: bold; letter-spacing: 4px; margin-top: 5px; text-transform: uppercase;">PREMIUM CASINO</div>
+        </div>
+        
+        <p id="auth-subtitle" style="font-size: 12px; color: var(--text-gray); margin-bottom: 20px; font-weight: bold;">ይመዝገቡ (10 ETB ቦነስ ያገኛሉ)</p>
+        
+        <div class="input-group" id="name-group">
+            <input type="text" id="reg-name" class="auth-input" placeholder="ሙሉ ስም (Full Name)" onkeyup="v()">
+        </div>
+        <div class="input-group">
+            <input type="tel" id="reg-phone" class="auth-input" placeholder="ስልክ ቁጥር (09...)" onkeyup="v()">
+        </div>
+        <div class="input-group">
+            <input type="password" id="reg-pass" class="auth-input" placeholder="የይለፍ ቃል (Password)" onkeyup="v()">
+            <span class="eye-icon" id="eye-icon" onclick="togglePass()">👁️</span>
+        </div>
+        <div class="input-group" id="ref-group">
+            <input type="text" id="reg-ref" class="auth-input ref-input" placeholder="የጋበዝዎት ሰው ኮድ (ካለ)" onkeyup="v()">
+        </div>
+        
+        <div id="terms-box" style="text-align:left; font-size:11px; margin: 5px 0 20px 0; color: var(--text-gray); line-height: 2;">
+            <label style="display: flex; align-items: center; gap: 10px;"><input type="checkbox" id="c1" checked onchange="v()"> እድሜዬ 21+ መሆኑን አረጋግጣለሁ</label>
+            <label style="display: flex; align-items: center; gap: 10px;"><input type="checkbox" id="c2" checked onchange="v()"> በውልና ደንቦች እስማማለሁ</label>
+        </div>
+        
+        <button id="start-btn" class="auth-btn" disabled onclick="authAction()">ወደ ጌም ግባ (REGISTER)</button>
+        <p style="font-size: 13px; color: var(--gold); cursor: pointer; margin-top: 20px; font-weight: bold; text-decoration: underline;" onclick="toggleAuthMode()" id="toggle-auth-text">አካውንት አለዎት? ይግቡ (Login)</p>
+    </div>
+
+    <!-- 🟢 TELEGRAM AUTH 🟢 -->
+    <div class="auth-card" id="telegram-auth-loading">
+        <div style="text-align: center; margin-bottom: 25px;">
+            <div class="auth-logo-box" style="width:80px; height:80px; font-size:40px; margin: 0 auto 10px auto; background: var(--gold-grad); border-radius: 50%; display: flex; align-items: center; justify-content: center;">🎰</div>
+            <h1 style="margin: 0; font-size: 32px; font-weight: 900; letter-spacing: 2px;">
+                <span style="color: var(--gold);">PHOENIX</span> 
+                <span style="color: #ffffff;">BINGO</span>
+            </h1>
+        </div>
+        
+        <p style="color: var(--text-gray); font-size: 14px; font-weight: bold; margin-bottom: 25px; line-height: 1.5;" id="tg-status-text">ወደ ጌም ለመግባት በቴሌግራም ስልክ ቁጥርዎን ያጋሩ</p>
+        
+        <button class="auth-btn" id="btn-share-contact" onclick="requestTgContact()" style="margin-bottom: 15px; display: none;">
+            📱 ስልክ ቁጥር አጋራ (SHARE CONTACT)
+        </button>
+
+        <button class="auth-btn" id="btn-manual-login" style="background: rgba(255,255,255,0.05); border: 1px solid var(--gold); color: var(--gold); box-shadow: none;" onclick="showManualAuth()">
+            በሌላ ስልክ ቁጥር ግባ (Manual Login)
+        </button>
+    </div>
+</div>
+
+<!-- 🟢 TOP HEADER 🟢 -->
+<div id="global-header" class="top-balance" style="display:none;">
+    <div class="hdr-wallets-left">
+        <div class="pill-wallet">
+            <span class="title play">PLAY BAL:</span>
+            <span class="amt" id="hdr-play-balance" style="color: var(--cyan);">0.00</span>
+        </div>
+        <div class="pill-wallet" style="border-color: rgba(248, 181, 0, 0.4); box-shadow: 0 0 8px rgba(248, 181, 0, 0.2);">
+            <span class="title main" style="color: var(--gold);">MAIN BAL:</span>
+            <span class="amt" id="hdr-main-balance" style="color: #ffde82; text-shadow: 0 0 8px #f8b500, 0 0 15px #f8b500; font-size: 13px;">0.00</span>
+        </div>
+    </div>
+    
+    <div class="hdr-user-right" onclick="showPage('profile', document.getElementById('nav-profile'))">
+        <div>
+            <div id="hdr-name" class="name">User</div>
+            <div id="hdr-phone" class="phone">09...</div>
+        </div>
+        <div class="icon" id="hdr-avatar">U</div>
+    </div>
+</div>
+
+<!-- 2. HOME PAGE -->
+<div id="home-page" class="page">
+    <div class="home-sticky-header">
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+            <div style="display: flex; border: 1px solid var(--gold); border-radius: 6px; overflow: hidden;">
+                <div id="btn-am" onclick="setLang('AM')" style="background: var(--gold-grad); color: black; padding: 4px 10px; font-size: 10px; font-weight: 900; cursor: pointer;">AM</div>
+                <div id="btn-en" onclick="setLang('EN')" style="background: black; color: white; padding: 4px 10px; font-size: 10px; font-weight: 900; cursor: pointer;">EN</div>
+            </div>
+        </div>
+
+        <div class="timer-jp-container">
+            <div class="new-timer-box">
+                <div class="nt-status" id="timer-status-text">ጨዋታው ሊጀምር ነው</div>
+                <div class="nt-value" id="timer">00:40</div> 
+            </div>
+            <div class="new-timer-box" style="border-color: rgba(255,255,255,0.1); box-shadow: none;">
+                <div class="nt-status" style="color: #cbd5e1; border: 1px solid rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px; display:inline-block; margin: 0 auto 3px auto; background: rgba(255,255,255,0.05);" id="h-lbl-derash">ደራሽ</div>
+                <div class="nt-value" style="color: #ffffff; font-size:18px;"><span id="jp">0.00</span> <span style="font-size: 9px; color: #94a3b8;">ETB</span></div>
+            </div>
+        </div>
+
+        <div class="grid-subtitle-row">
+            <div class="gs-left" id="h-lbl-select">ካርቴላ ይምረጡ (10 ብር)</div>
+            <div class="gs-right"><span id="grid-sel-count">0</span><span class="slash" style="color:white;">/ 4</span></div>
+        </div>
+    </div>
+
+    <div id="game-page" style="display:none;">
+        <div id="g-id"></div><div id="g-val-bet"></div><div id="g-prize"></div>
+        <div id="master-board"></div><div id="caller-ball"></div>
+        <div id="game-mini-tickets"></div><div id="g-jp-amt"></div>
+    </div>
+    
+    <div id="grid-box" class="num-grid"></div>
+</div>
+
+<!-- COMPACT FIXED BET SLIP POPUP -->
+<div id="bet-slip-popup" class="bet-slip-popup">
+    <div style="display:flex; justify-content:space-between; width:100%; margin-bottom:6px;">
+        <span style="color:white; font-size:11px; font-weight:bold;"><span id="lbl-sel-tickets">የመረጧቸው ካርቴላዎች: </span> <span id="slip-count" style="color:var(--gold);">0</span></span>
+        <span style="color:var(--gold); font-size:14px; font-weight:900;"><span id="slip-price">0</span> ETB</span>
+    </div>
+    <div id="ticket-preview-box" class="preview-tickets-wrapper"></div>
+</div>
+<!-- 🟢 4. TICKETS PAGE 🟢 -->
+<div id="ticket-page" class="page">
+    
+    <!-- 🟢 TOP SECTION 🟢 -->
+    <div class="ticket-top-section">
+        
+        <div class="t-header-row">
+            <div class="round">Round: <span id="top-round-id" style="color:var(--gold); font-family: monospace;">#---</span></div>
+            <div class="balls">የወጣው: <b id="t-page-balls" style="color:var(--bg-dark);">0/75</b></div>
+            <div class="sound" id="sound-toggle" onclick="toggleSound(event)">🔊</div>
+        </div>
+        
+        <div class="t-caller-row">
+            <div class="caller-box"><div id="ticket-caller-ball" class="caller-ball">--</div></div>
+            <div id="ticket-history-bar" class="history-top-bar"><span style="color:var(--text-gray); font-size:11px;" id="lbl-hist-wait">ገና አልጀመረም...</span></div>
+            <div class="golden-prize-box"><span id="lbl-t-prize">ደራሽ</span><b id="t-page-prize" style="color: #ffde82; text-shadow: 0 0 8px #f8b500, 0 0 15px #f8b500; font-size: 15px;">0.00 ETB</b></div>
+        </div>
+
+        <div class="t-mb-toggle-bar">
+            <span id="t-info">እስካሁን ካርቴላ አልገዙም</span>
+            <button class="t-btn-mb" onclick="toggleTicketMasterBoard()">
+                👁️ <span id="t-btn-mb-txt">ሙሉ ቦርድ እይ (Master Board)</span> <span id="mb-toggle-arrow" style="color: var(--gold); margin-left: 5px;">▼</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- 🟢 ማስተር ቦርድ 🟢 -->
+    <div id="ticket-mb-container">
+        <div id="ticket-master-board"></div>
+    </div>
+    
+    <!-- 🟢 ካርቴላዎች 🟢 -->
+    <div id="ticket-list"></div>
+</div>
+
+<!-- 🟢 5. WALLET PAGE 🟢 -->
+<div id="wallet-page" class="page">
+    <h3 id="wal-title" style="text-align:center; margin-top: 0; font-size: 18px; color:var(--gold); text-transform: uppercase; letter-spacing: 1px;">የእኔ ሂሳብ (Wallet)</h3>
+    
+    <div class="wallet-card">
+        <div>
+            <div id="wal-main-lbl" style="color: #94a3b8; font-size: 11px; font-weight:bold; text-transform: uppercase;">ዋና ሂሳብ <span style="font-size:9px; color:#64748b; text-transform: none;">(ያሸነፉት/ወጪ የሚደረግ)</span></div>
+            <div style="font-size: 34px; font-weight: 900; color: #ffde82; margin: 10px 0; font-family: 'Arial Black', sans-serif; text-shadow: 0 0 10px #f8b500, 0 0 20px #f8b500, 0 0 30px #f8b500;" id="main-bal">0.00</div>
+            
+            <div style="color: #94a3b8; font-size: 12px; display: inline-block; background: rgba(0,0,0,0.3); padding: 6px 15px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                <span id="wal-play-lbl">መጫወቻ ሂሳብ:</span> <b style="color:var(--cyan); font-size:14px;"><span id="play-bal">0.00</span> ETB</b>
+            </div>
+        </div>
+        
+        <div class="btn-action-row">
+            <div class="w-btn-premium w-dep" onclick="openDepositModal()">
+                <div class="w-icon-box">📥</div>
+                <div class="w-txt-group">
+                    <div class="w-main-txt" id="btn-txt-dep">DEPOSIT</div>
+                    <div class="w-sub-txt" id="btn-sub-dep">ገቢ ማድረግ</div>
+                </div>
+                <div class="w-arrow">➔</div>
+            </div>
+            
+            <div class="w-btn-premium w-wit" onclick="openWithdrawModal()">
+                <div class="w-icon-box">📤</div>
+                <div class="w-txt-group">
+                    <div class="w-main-txt" id="btn-txt-wit">WITHDRAW</div>
+                    <div class="w-sub-txt" id="btn-sub-wit">ወጪ ማድረግ</div>
+                </div>
+                <div class="w-arrow">➔</div>
+            </div>
+        </div>
+    </div>
+    
+    <div style="margin-top: 15px; padding: 0 5px;">
+        <h4 id="wal-hist-lbl" style="color:var(--text-gray); font-size: 12px; border-bottom: 1px solid rgba(240, 208, 125, 0.3); padding-bottom: 10px; margin-bottom: 12px; text-transform: uppercase;">የሂሳብ ዝውውር ታሪክ (Last 14 days)</h4>
+        
+        <div id="wallet-history-list">
+            <p style="text-align:center; color:var(--text-gray); font-size:12px; font-weight:bold;" id="lbl-no-hist">ታሪክ የለም / No History</p>
+        </div>
+    </div>
+</div>
+
+<!-- 🟢 6. RANK PAGE 🟢 -->
+<div id="rank-page" class="page">
+    <div class="rank-header-banner">
+        <h1 style="margin:0; font-size:26px; color:var(--gold); font-weight:900; text-transform:uppercase; letter-spacing:3px; position:relative; z-index:1;">LEADERBOARD</h1>
+        <p style="margin:2px 0 0 0; font-size:12px; color:#cbd5e1; font-weight:bold; position:relative; z-index:1;" id="rnk-title">የ7 ቀን የካርድ ደረጃ</p>
+        <div id="rnk-countdown" style="margin-top:8px; font-size:14px; font-weight:900; color:var(--gold); position:relative; z-index:1;">—</div>
+    </div>
+    <div id="rank-content"><p style="text-align:center; color:var(--text-gray); font-size:12px;">እየጫነ ነው (Loading)...</p></div>
+</div>
+
+<!-- 🟢 7. PROFILE PAGE 🟢 -->
+<div id="profile-page" class="page">
+    <div style="text-align:center; margin-bottom: 20px; margin-top: 15px;">
+        <div id="prof-avatar" class="prof-avatar-circle">U</div>
+        <h2 id="prof-name" style="margin: 8px 0 0 0; color: white; font-size: 22px;">User Name</h2>
+        <p id="prof-phone" style="color: var(--gold); margin: 4px 0 0 0; font-size: 13px; font-weight: bold; letter-spacing: 1.5px;">09...</p>
+    </div>
+
+    <div style="display: flex; gap: 12px; margin-bottom: 20px;">
+        <div class="profile-stat-box" style="flex: 1; margin: 0;">
+            <div id="prof-played-lbl" style="font-size: 10px; color: var(--text-gray); text-transform: uppercase; font-weight: bold;">የተጫወቱት (Played)</div>
+            <div style="font-size: 22px; font-weight: 900; color: white; margin-top: 6px; font-family: monospace;" id="prof-played">0</div>
+        </div>
+        <div class="profile-stat-box" style="flex: 1; margin: 0; background: rgba(240, 208, 125, 0.05); border-color: var(--gold);">
+            <div id="prof-won-lbl" style="font-size: 10px; color: var(--gold); text-transform: uppercase; font-weight: bold;">ያሸነፉት (Won)</div>
+            <div style="font-size: 16px; font-weight: 900; color: var(--gold); margin-top: 8px;" id="prof-won">0 ETB</div>
+        </div>
+    </div>
+
+    <div style="background: rgba(0,0,0,0.4); border: 1px dashed var(--gold); border-radius: 15px; padding: 15px; margin-bottom: 20px; text-align: center;">
+        <div id="prof-bot-lbl" style="font-size: 12px; font-weight: bold; color: var(--text-gray); margin-bottom: 10px;">የራስዎ መጋበዣ ሊንክ (Share & Earn)</div>
+        <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.6); padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
+            <span id="prof-ref-text" style="font-size: 12px; color: white; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; text-align: left;">t.me/...</span>
+            <button id="prof-btn-copy" style="background: var(--gold-grad); color: black; border: none; padding: 8px 15px; border-radius: 8px; font-weight: 900; cursor: pointer; font-size: 11px;">Copy</button>
+        </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:8px;">
+        
+        <button class="prof-list-btn" onclick="openGameHistory()">
+            <div style="display:flex; align-items:center;"><span style="font-size: 18px; margin-right: 12px;">📜</span> <span id="prof-history-lbl">የጨዋታ ታሪክ (Game History)</span></div><span style="color:#64748b;">></span>
+        </button>
+
+        <button class="prof-list-btn promo-special-btn" onclick="openPromoModal()">
+            <div style="display:flex; align-items:center; z-index:1;">
+                <span style="font-size: 20px; margin-right: 12px;">🎁</span> 
+                <span id="prof-promo-lbl" style="color:#ffffff; font-weight: 900; font-size: 13px; letter-spacing: 1px;">PROMO CODE</span>
+            </div>
+            <span style="background: var(--gold-grad); color: black; padding: 4px 10px; border-radius: 12px; font-size: 10px; font-weight: 900; z-index:1;">REDEEM</span>
+        </button>
+        
+        <button class="prof-list-btn" onclick="window.location.href='https://t.me/PHOENIX_SUPPORT_USERNAME'">
+            <div style="display:flex; align-items:center;"><span style="font-size: 18px; margin-right: 12px;">💬</span> <span id="prof-help-lbl">እርዳታ ያስፈልጎታል? (Support)</span></div><span style="color:#64748b;">></span>
+        </button>
+        
+        <button class="prof-list-btn" onclick="document.getElementById('pw-modal-overlay').style.display='flex'">
+            <div style="display:flex; align-items:center;"><span style="font-size: 18px; margin-right: 12px;">🔐</span> <span id="prof-pw-lbl">የይለፍ ቃል ቀይር</span></div><span style="color:#64748b;">></span>
+        </button>
+        
+        <button class="prof-list-btn logout" style="border: 1px solid rgba(239, 68, 68, 0.5); color: var(--red); background: rgba(239, 68, 68, 0.05); justify-content: center; margin-top: 10px; padding: 18px;" onclick="logout()">
+            <div style="display:flex; align-items:center;"><span style="font-size: 18px; margin-right: 10px;">🚪</span> <span id="prof-out-lbl" style="letter-spacing: 1px;">ከሲስተም ውጣ (Logout)</span></div>
+        </button>
+    </div>
+</div>
+
+<div id="game-history-overlay" style="display:none; position:fixed; inset:0; z-index:80; background:rgba(2,6,23,0.92); overflow:auto; padding:16px 12px 90px;">
+    <div style="max-width:520px; margin:0 auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <h2 style="margin:0; color:var(--gold); font-size:18px;">Game History</h2>
+            <button onclick="closeGameHistory()" style="background:transparent; color:white; border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:8px 12px; font-weight:800;">Close</button>
+        </div>
+        <div id="game-history-list"></div>
+    </div>
+</div>
+
+<!-- 🟢 FLOATING BOTTOM NAVIGATION 🟢 -->
+<nav id="navbar" class="bottom-nav" style="display: none;">
+    <div class="nav-item active" id="nav-home" onclick="handleHomeNav(this)"><span class="nav-icon" id="nav-icon-home">🎲</span><span id="nav-txt-home">Home</span></div>
+    
+    <div class="nav-item" id="nav-item-ticket" onclick="showPage('ticket', this)" style="display:none;">
+        <div id="ticket-live-arrow" class="ticket-alert-arrow">⬇️</div>
+        <span class="nav-icon">🎫</span><span id="nav-txt-ticket">Ticket</span>
+    </div>
+    
+    <div class="nav-item" id="nav-wallet" onclick="showPage('wallet', this)"><span class="nav-icon">💳</span><span id="nav-txt-wallet">Wallet</span></div>
+    
+    <div class="nav-item" id="nav-rank" onclick="loadLeaderboard(this)"><span class="nav-icon">🏅</span><span id="nav-txt-rank">Rank</span></div>
+    
+    <div class="nav-item" id="nav-profile" onclick="showPage('profile', this)"><span class="nav-icon">🎭</span><span id="nav-txt-profile">Profile</span></div>
+</nav>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    if (typeof io === 'undefined') {
+        document.write('<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"><\/script>');
+    }
+</script>
+<script>
+    const PHOENIX_RENDER_URL = 'https://phoenix-bingo-5w5t.onrender.com';
+    // Use relative path when served by any full-stack HTTP(S) server (localhost, Cloud Run, custom domain, Render)
+    const isSeparateStaticFrontend = window.location.protocol === 'file:' || window.location.hostname.endsWith('github.io');
+    const BACKEND_URL = isSeparateStaticFrontend ? PHOENIX_RENDER_URL : '';
+
+    // Route relative /api/ requests to the Phoenix Bingo backend when frontend is hosted separately
+    if (BACKEND_URL && !window._fetchPatched) {
+        window._fetchPatched = true;
+        const origFetch = window.fetch;
+        window.fetch = function(input, init) {
+            if (typeof input === 'string' && input.startsWith('/api/')) {
+                input = BACKEND_URL + input;
+            }
+            return origFetch.call(this, input, init);
+        };
+    }
+
+    const socket = (typeof io !== 'undefined') ? io(BACKEND_URL || undefined, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 20000
+    }) : { connected: false, on: () => {}, emit: () => {} };
+
+    function showOfflineAlert(customMsg) {
+        const alertBox = document.getElementById('offline-alert');
+        if (!alertBox) return;
+        const origText = '❌ ኢንተርኔት ተቋርጧል! (Internet is lost)';
+        if (customMsg) alertBox.innerText = customMsg;
+        alertBox.classList.add('show');
+        setTimeout(() => {
+            alertBox.classList.remove('show');
+            setTimeout(() => {
+                alertBox.innerText = origText;
+            }, 400);
+        }, 3000);
+    }
+
+    socket.on('connect', () => {
+        const alertBox = document.getElementById('offline-alert');
+        if (alertBox) alertBox.classList.remove('show');
+    });
+
+    socket.on('connect_error', (err) => {
+        console.warn('[Socket.IO] Connection notice:', err ? err.message : err);
+    });
+
+    socket.on('reconnect', () => {
+        const alertBox = document.getElementById('offline-alert');
+        if (alertBox) alertBox.classList.remove('show');
+        if (currentUser && currentUser.phone) {
+            socket.emit('get_initial_data', currentUser.phone);
+        }
+    });
+
+    window.addEventListener('offline', () => {
+        if (!socket.connected) {
+            showOfflineAlert();
+        }
+    });
+
+    window.addEventListener('online', () => {
+        const alertBox = document.getElementById('offline-alert');
+        if (alertBox) alertBox.classList.remove('show');
+        if (socket && !socket.connected && typeof socket.connect === 'function') {
+            socket.connect();
+        }
+    });
+    let called = []; 
+    let currentUser = null;
+    let userTicketsData = [];
+    let isLoginMode = false;
+    let isGameRunningLocally = false;
+    let currentGameState = null;
+    let globalTakenTickets = []; 
+    let isSoundOn = true;
+    let maxTicketsLimit = 4; 
+    let currentTicketPrice = 10;
+    function cardTotalCost() { return Number(currentTicketPrice) || 0; } 
+    let isProcessingTicket = false;
+    let tgCheckInterval = null;
+    let currentLang = 'AM';
+    
+    let historyPollInterval = null; 
+
+    let audioQueue = [];
+    let isPlayingAudio = false;
+    let currentAudioObj = null;
+    let currentJackpotBoost = 0;
+
+    async function pasteSMS() {
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.readTextFromClipboard) {
+            window.Telegram.WebApp.readTextFromClipboard(function(text) {
+                if(text) {
+                    document.getElementById('m-dep-sms').value = text;
+                } else {
+                    fallbackPaste();
+                }
+            });
+        } else {
+            fallbackPaste();
+        }
+    }
+
+    async function fallbackPaste() {
+        try {
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                const text = await navigator.clipboard.readText();
+                if(text) {
+                    document.getElementById('m-dep-sms').value = text;
+                    return;
+                }
+            }
+            throw new Error("Clipboard blocked");
+        } catch (err) {
+            alert(currentLang === 'AM' ? "ስልክዎ Paste በተንን አይፈቅድም! እባክዎ ባዶ ሳጥኑ ላይ በጣታዎ ጫን ብለው 'Paste' የሚለውን ይምረጡ።" : "Device blocked clipboard! Please long-press the text box and manually paste.");
+        }
+    }
+
+    function setLang(lang) {
+        currentLang = lang;
+        document.getElementById('btn-am').style.background = lang === 'AM' ? 'var(--gold-grad)' : 'black';
+        document.getElementById('btn-am').style.color = lang === 'AM' ? 'black' : 'white';
+        document.getElementById('btn-en').style.background = lang === 'EN' ? 'var(--gold-grad)' : 'black';
+        document.getElementById('btn-en').style.color = lang === 'EN' ? 'black' : 'white';
+
+        document.getElementById('h-lbl-select').innerText = lang === 'AM' ? `ካርቴላ ይምረጡ (${currentTicketPrice} ብር)` : `Select Tickets (${currentTicketPrice} ETB)`;
+        document.getElementById('h-lbl-derash').innerText = lang === 'AM' ? "ደራሽ" : "PRIZE";
+        
+        let statText = document.getElementById('timer-status-text');
+        if(statText) {
+            if(isGameRunningLocally) statText.innerText = lang === 'AM' ? "ጨዋታው በመካሄድ ላይ ነው" : "Game is LIVE";
+            else statText.innerText = lang === 'AM' ? "ጨዋታው ሊጀምር ነው" : "Game is Starting";
+        }
+        
+        document.getElementById('lbl-sel-tickets').innerText = lang === 'AM' ? "የመረጧቸው ካርቴላዎች: " : "Selected Tickets: ";
+
+        document.getElementById('lbl-t-prize').innerText = lang === 'AM' ? "ደራሽ" : "PRIZE";
+        document.getElementById('t-btn-mb-txt').innerText = lang === 'AM' ? "ሙሉ ቦርድ እይ (Master Board)" : "View Master Board";
+        
+        let tInfo = document.getElementById('t-info');
+        if(userTicketsData.length > 0) {
+            tInfo.innerText = lang === 'AM' ? "የገዙት ካርቴላ ብዛት: " + userTicketsData.length : "Purchased Tickets: " + userTicketsData.length;
+        } else { 
+            tInfo.innerText = lang === 'AM' ? "ካርቴላ አልገዙም! እባክዎ ቀጣይ ዙር እስኪጀምር ይጠብቁ" : "No Tickets! Please wait for the next round."; 
+        }
+        
+        let histWait = document.getElementById('lbl-hist-wait');
+        if(histWait) histWait.innerText = lang === 'AM' ? "ገና አልጀመረም..." : "Waiting to start...";
+
+        document.getElementById('wal-title').innerText = lang === 'AM' ? "የእኔ ሂሳብ (Wallet)" : "My Wallet";
+        document.getElementById('wal-main-lbl').innerHTML = lang === 'AM' ? `ዋና ሂሳብ <span style="font-size:9px; color:#64748b; text-transform:none;">(ያሸነፉት/ወጪ የሚደረግ)</span>` : `Main Balance <span style="font-size:9px; color:#64748b; text-transform:none;">(Withdrawable)</span>`;
+        document.getElementById('wal-play-lbl').innerText = lang === 'AM' ? "መጫወቻ ሂሳብ:" : "Play Balance:";
+        document.getElementById('wal-hist-lbl').innerText = lang === 'AM' ? "የሂሳብ ዝውውር ታሪክ (History)" : "Transaction History";
+        
+        document.getElementById('btn-sub-dep').innerText = lang === 'AM' ? "ገቢ ማድረግ" : "Add Funds";
+        document.getElementById('btn-sub-wit').innerText = lang === 'AM' ? "ወጪ ማድረግ" : "Cash Out";
+        
+        let noHist = document.getElementById('lbl-no-hist');
+        if(noHist) noHist.innerText = lang === 'AM' ? "ታሪክ የለም / No History" : "No Transactions Yet";
+
+        document.getElementById('rnk-title').innerText = lang === 'AM' ? "የሳምንቱ ምርጥ 10 አሸናፊዎች" : "Top 10 Winners of the Week";
+
+        document.getElementById('prof-played-lbl').innerText = lang === 'AM' ? "የተጫወቱት (Played)" : "Games Played";
+        document.getElementById('prof-won-lbl').innerText = lang === 'AM' ? "ያሸነፉት (Won)" : "Total Won";
+        document.getElementById('prof-bot-lbl').innerText = lang === 'AM' ? "የራስዎ መጋበዣ ሊንክ (Share & Earn)" : "Your Referral Link (Share & Earn)";
+        document.getElementById('prof-help-lbl').innerText = lang === 'AM' ? "እርዳታ ያስፈልጎታል? (Support)" : "Need Help? (Support)";
+        document.getElementById('prof-pw-lbl').innerText = lang === 'AM' ? "የይለፍ ቃል ቀይር" : "Change Password";
+        document.getElementById('prof-out-lbl').innerText = lang === 'AM' ? "ከሲስተም ውጣ (Logout)" : "Logout Securely";
+        document.getElementById('lbl-bonus-claim').innerHTML = lang === 'AM' ? `ቦነስ ይውሰዱ<br><span id="promo-float-amt" style="font-size: 14px;">${document.getElementById('promo-float-amt').innerText}</span> ETB` : `Claim Bonus<br><span id="promo-float-amt" style="font-size: 14px;">${document.getElementById('promo-float-amt').innerText}</span> ETB`;
+
+        document.getElementById('dep-title').innerText = lang === 'AM' ? "ገቢ ማድረግ" : "Deposit Funds";
+        document.getElementById('lbl-dep-bank').innerText = lang === 'AM' ? "1. ባንክ ይምረጡ" : "1. Select Bank";
+        document.getElementById('lbl-bank-acc').innerText = lang === 'AM' ? "የባንክ አካውንት:" : "Bank Account:";
+        document.getElementById('lbl-dep-info').innerText = lang === 'AM' ? "2. መረጃ ያስገቡ" : "2. Enter Details";
+        document.getElementById('m-dep-amt').placeholder = lang === 'AM' ? "የላኩት መጠን (Amount) - Min 50" : "Amount Sent - Min 50";
+        document.getElementById('m-dep-sms').placeholder = lang === 'AM' ? "ከባንክ የተላከሎትን SMS ሙሉውን እዚህ Paste ያድርጉ..." : "Paste the full bank SMS confirmation here...";
+        document.getElementById('m-dep-btn').innerText = lang === 'AM' ? "ገቢ አድርግ (SUBMIT)" : "SUBMIT DEPOSIT";
+
+        document.getElementById('wit-title').innerText = lang === 'AM' ? "ወጪ ማድረግ" : "Withdraw Funds";
+        document.getElementById('lbl-wit-bank').innerText = lang === 'AM' ? "1. ወጪ ማድረጊያ ባንክ" : "1. Withdrawal Bank";
+        document.getElementById('lbl-wit-info').innerText = lang === 'AM' ? "2. መረጃ ያስገቡ" : "2. Enter Details";
+        document.getElementById('m-wit-amt').placeholder = lang === 'AM' ? "መጠን (Amount) - Min 50 ETB" : "Amount - Min 50 ETB";
+        document.getElementById('m-wit-btn').innerText = lang === 'AM' ? "ወጪ አድርግ" : "WITHDRAW FUNDS";
+
+        let dynDepBanner = document.getElementById('dynamic-dep-banner');
+        if(dynDepBanner) dynDepBanner.innerHTML = lang === 'AM' ? "🎁 ልዩ ስጦታ<br>ከ 100 ብር ጀምሮ ገቢ ሲያደርጉ ተጨማሪ 20% ጉርሻ ያግኙ!" : "🎁 Special Gift<br>Get 20% bonus when you deposit 100 ETB or more!";
+        
+        let dynWitBanner = document.getElementById('dynamic-wit-banner');
+        if(dynWitBanner) dynWitBanner.innerHTML = lang === 'AM' ? "⚠️ <b>ማሳሰቢያ:</b> ለደህንነት ሲባል ገንዘብ ወጪ ማድረግ የሚቻለው <b>ሲመዘገቡ በተጠቀሙበት ስልክ ቁጥር</b> ብቻ ነው።" : "⚠️ <b>Notice:</b> For security reasons, you can only withdraw to the <b>phone number you registered with</b>.";
+
+        document.getElementById('lbl-promo-desc').innerText = lang === 'AM' ? "የፕሮሞ ኮድ ያስገቡ (Redeem Promo Code)" : "Enter Promo Code Below";
+        document.getElementById('m-promo-btn').innerText = lang === 'AM' ? "አረጋግጥ (REDEEM)" : "REDEEM NOW";
+
+        document.getElementById('nav-txt-home').innerText = lang === 'AM' ? 'መነሻ' : 'Home';
+        document.getElementById('nav-txt-ticket').innerText = lang === 'AM' ? 'ካርቴላ' : 'Ticket';
+        document.getElementById('nav-txt-wallet').innerText = lang === 'AM' ? 'ሂሳብ' : 'Wallet';
+        document.getElementById('nav-txt-rank').innerText = lang === 'AM' ? 'ደረጃ' : 'Rank';
+        document.getElementById('nav-txt-profile').innerText = lang === 'AM' ? 'ፕሮፋይል' : 'Profile';
+    }
+
+    function toggleSound(e) {
+        if(e) e.stopPropagation();
+        isSoundOn = !isSoundOn;
+        const btn = document.getElementById('sound-toggle');
+        if(btn) {
+            btn.innerText = isSoundOn ? '🔊' : '🔇';
+            btn.style.opacity = isSoundOn ? '1' : '0.5';
+        }
+    }
+
+    function playNumberSound(num) {
+        if (!isSoundOn) return;
+        audioQueue.push({ type: 'number', file: num });
+        processAudioQueue();
+    }
+
+    function playBingoSound() {
+        if (!isSoundOn) return;
+        audioQueue = []; 
+        if(currentAudioObj) { currentAudioObj.pause(); currentAudioObj.currentTime = 0; isPlayingAudio = false; }
+        audioQueue.push({ type: 'bingo', file: 'New Recording 9' });
+        processAudioQueue();
+    }
+
+    function processAudioQueue() {
+        if (isPlayingAudio || audioQueue.length === 0) return;
+        isPlayingAudio = true;
+        let item = audioQueue.shift();
+        
+        let path = '';
+        if (item.type === 'bingo') { path = `/jo sound/${item.file}.m4a`; } 
+        else { path = `/jo sound/${item.file}.mp3`; }
+
+        currentAudioObj = new Audio(path); 
+        currentAudioObj.onended = () => { isPlayingAudio = false; currentAudioObj = null; processAudioQueue(); };
+        currentAudioObj.onerror = () => { isPlayingAudio = false; currentAudioObj = null; processAudioQueue(); };
+        
+        let playPromise = currentAudioObj.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(e => { isPlayingAudio = false; currentAudioObj = null; processAudioQueue(); });
+        }
+    }
+
+    function requestTgContact() {
+        if(window.Telegram && window.Telegram.WebApp) {
+            window.Telegram.WebApp.requestContact((shared) => {
+                if(shared) {
+                    document.getElementById('tg-status-text').innerText = "ማረጋገጫ እየጠበቀ ነው... (Verifying...)";
+                    document.getElementById('btn-share-contact').style.display = 'none';
+                    tgCheckInterval = setInterval(checkTgAuthStatus, 2000);
+                } else {
+                    alert("ስልክ ቁጥር አላጋሩም! ለመግባት ስልክ ቁጥርዎን ማጋራት ግዴታ ነው።");
+                }
+            });
+        }
+    }
+
+    async function checkTgAuthStatus() {
+        if(!window.Telegram || !window.Telegram.WebApp.initDataUnsafe.user) return;
+        const tgId = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
+        try {
+            let res = await fetch('/api/telegram-login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ telegramId: tgId }) });
+            let data = await res.json();
+            if(data.success && data.user.phone) {
+                clearInterval(tgCheckInterval);
+                processLoginSuccess(data.user);
+                loadActiveTicketsData(data.user.phone);
+                socket.emit('get_initial_data', data.user.phone);
+            }
+        } catch(e) {}
+    }
+
+    function showManualAuth() {
+        document.getElementById('telegram-auth-loading').style.display = 'none';
+        document.getElementById('manual-login-form').style.display = 'block';
+    }
+
+    window.onload = async () => {
+        buildMasterBoard(); buildTicketMasterBoard(); initGrid();
+        
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+            const tgUser = window.Telegram.WebApp.initDataUnsafe.user;
+            const tgId = tgUser.id.toString();
+            
+            document.getElementById('manual-login-form').style.display = 'none';
+            document.getElementById('telegram-auth-loading').style.display = 'flex';
+
+            try {
+                let res = await fetch('/api/telegram-login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ telegramId: tgId }) });
+                let data = await res.json();
+                if (data.success) {
+                    processLoginSuccess(data.user);
+                    loadActiveTicketsData(data.user.phone);
+                    socket.emit('get_initial_data', data.user.phone); return; 
+                } else { 
+                    document.getElementById('tg-status-text').innerText = "ወደ ጌም ለመግባት በቴሌግራም ስልክ ቁጥርዎን ያጋሩ (Share Contact)";
+                    document.getElementById('btn-share-contact').style.display = 'block';
+                }
+            } catch(e) { 
+                showManualAuth();
+            }
+        } else {
+            showManualAuth();
+        }
+
+        let savedPhone = localStorage.getItem('bingo_user_phone'); let savedPass = localStorage.getItem('bingo_user_pass');
+        
+        if(savedPhone && savedPass && document.getElementById('manual-login-form').style.display !== 'none') {
+            document.getElementById('start-btn').innerText = "እየገባ ነው... (Logging in...)"; document.getElementById('start-btn').disabled = true;
+            try {
+                let res = await fetch('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone: savedPhone, password: savedPass}) }); let data = await res.json();
+                if(data.success) { 
+                    processLoginSuccess(data.user); 
+                    loadActiveTicketsData(data.user.phone);
+                    socket.emit('get_initial_data', data.user.phone); 
+                } else { logout(); }
+            } catch(e) { document.getElementById('start-btn').innerText = "ወደ ጌም ግባ (REGISTER)"; document.getElementById('start-btn').disabled = false; }
+        }
+    };
+
+    async function loadActiveTicketsData(phone) {
+        let tRes = await fetch(`/api/user/my-active-tickets/${phone}`); let tData = await tRes.json();
+        if(tData.success && tData.ticketsData && tData.ticketsData.length > 0) {
+            userTicketsData = tData.ticketsData; renderConfirmedTickets(); renderGridTakenStates(); 
+            if(tData.calledNumbers && tData.calledNumbers.length > 0) {
+                called = tData.calledNumbers;
+                called.forEach(num => {
+                    let colIdx = num <= 15 ? 0 : num <= 30 ? 1 : num <= 45 ? 2 : num <= 60 ? 3 : 4; let ballText = bHeads[colIdx] + "-" + num; let topH = document.getElementById('history-scroll-top'); let tickH = document.getElementById('ticket-history-bar');
+                    if (topH && topH.innerHTML === '' || tickH && tickH.innerText.includes("ገና") || tickH && tickH.innerText.includes("Wait")) { if(tickH) tickH.innerHTML = ''; }
+                    let topDiv = document.createElement('div'); topDiv.className = 'hist-top-ball'; topDiv.innerText = ballText; let tickDiv = document.createElement('div'); tickDiv.className = 'hist-top-ball'; tickDiv.innerText = ballText;
+                    if(topH) topH.insertBefore(topDiv, topH.firstChild); if(tickH) tickH.insertBefore(tickDiv, tickH.firstChild); 
+                });
+                called.forEach(num => {
+                    document.querySelectorAll('.t-v-' + num).forEach(c => c.classList.add('marked'));
+                    let mbCell = document.getElementById('mb-' + num); if(mbCell) mbCell.classList.add('called'); let tmbCell = document.getElementById('tmb-' + num); if(tmbCell) tmbCell.classList.add('called');
+                });
+            }
+        }
+    }
+
+    socket.on('new_promo_alert', (data) => {
+        const floatBtn = document.getElementById('promo-claim-float');
+        if(floatBtn) {
+            document.getElementById('promo-float-amt').innerText = data.amount;
+            floatBtn.style.display = 'block';
+        }
+    });
+
+    async function claimWebPromo() {
+        if(!currentUser) return alert(currentLang === 'AM' ? "እባክዎ መጀመሪያ ይግቡ (Login)" : "Please login first!");
+        document.getElementById('promo-claim-float').style.display = 'none'; 
+        try {
+            let res = await fetch('/api/claim-promo-web', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone: currentUser.phone}) });
+            let data = await res.json();
+            if(data.success) { alert(`🎉 ${currentLang === 'AM' ? 'እንኳን ደስ አሎት! የ' : 'Congratulations! You received'} ${data.amount} ETB ${currentLang === 'AM' ? 'ቦነስ አግኝተዋል!' : 'Bonus!'}`); fetchUpdatedBalance(); } 
+            else { alert("❌ " + data.message); }
+        } catch(e) { alert("❌ " + (currentLang === 'AM' ? "ኮኔክሽን ተቋርጧል!" : "Connection Error!")); }
+    }
+
+    function openPromoModal() {
+        document.getElementById('promo-modal-overlay').style.display = 'flex';
+        setTimeout(() => { document.querySelector('#promo-modal-overlay .trx-modal').classList.add('show'); }, 10);
+    }
+
+    function closePromoModal(e) {
+        if(e && e.target.id !== 'promo-modal-overlay') return;
+        document.querySelector('#promo-modal-overlay .trx-modal').classList.remove('show');
+        setTimeout(() => { document.getElementById('promo-modal-overlay').style.display = 'none'; }, 300);
+    }
+
+    async function submitPromoCode() {
+        let code = document.getElementById('m-promo-input').value.trim();
+        if(!code) return alert(currentLang === 'AM' ? "እባክዎ ኮድ ያስገቡ!" : "Please enter a code!");
+        
+        let btn = document.getElementById('m-promo-btn');
+        btn.innerText = currentLang === 'AM' ? "እየላከ ነው..." : "Sending...";
+        try {
+            let pass = localStorage.getItem('bingo_user_pass');
+            if (!pass && window.currentUser && window.currentUser.password) {
+                pass = window.currentUser.password;
+            }
+            
+            let res = await fetch('/api/claim-promo-code', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify({ phone: currentUser.phone, pass: pass, code: code }) 
+            });
+            let data = await res.json();
+            
+            if(data.success) { 
+                alert("🎉 " + data.message);
+                fetchUpdatedBalance(); 
+                closePromoModal(); 
+                document.getElementById('m-promo-input').value = ''; 
+            } else {
+                alert("❌ " + (data.message || (currentLang === 'AM' ? "ስህተት አጋጥሟል!" : "Error!")));
+            }
+        } catch(e) { 
+            alert(currentLang === 'AM' ? "ኮኔክሽን ተቋርጧል!" : "Connection Error!"); 
+        }
+        btn.innerText = currentLang === 'AM' ? "አረጋግጥ (REDEEM)" : "REDEEM NOW";
+    }
+
+    function toggleTicketMasterBoard() {
+        const page = document.getElementById('ticket-page'); 
+        const arrow = document.getElementById('mb-toggle-arrow');
+        const navbar = document.getElementById('navbar');
+
+        page.classList.toggle('show-mb'); 
+        if(page.classList.contains('show-mb')) { 
+            arrow.innerText = '▲'; 
+            if(userTicketsData.length >= 3) {
+                navbar.style.display = 'none';
+            }
+        } else { 
+            arrow.innerText = '▼'; 
+            navbar.style.display = 'flex';
+        }
+    }
+
+    function logout() { localStorage.removeItem('bingo_user_phone'); localStorage.removeItem('bingo_user_pass'); window.location.href = "/"; }
+    
+    function togglePass() { 
+        let x = document.getElementById("reg-pass"); 
+        let icon = document.getElementById("eye-icon"); 
+        if (x.type === "password") { x.type = "text"; icon.innerText = "🙈"; } else { x.type = "password"; icon.innerText = "👁️"; } 
+    }
+
+    function openDepositModal() { document.getElementById('dep-modal-overlay').style.display = 'flex'; setTimeout(() => { document.getElementById('dep-modal').classList.add('show'); }, 10); }
+    function closeDepositModal(e) { if(e && e.target.id !== 'dep-modal-overlay') return; document.getElementById('dep-modal').classList.remove('show'); setTimeout(() => { document.getElementById('dep-modal-overlay').style.display = 'none'; }, 300); }
+    
+    function openWithdrawModal() { if(currentUser && currentUser.phone) { document.getElementById('m-wit-phone').value = currentUser.phone; } document.getElementById('wit-modal-overlay').style.display = 'flex'; setTimeout(() => { document.getElementById('wit-modal').classList.add('show'); }, 10); }
+    function closeWithdrawModal(e) { if(e && e.target.id !== 'wit-modal-overlay') return; document.getElementById('wit-modal').classList.remove('show'); setTimeout(() => { document.getElementById('wit-modal-overlay').style.display = 'none'; }, 300); }
+    
+    const depAccounts = { 'telebirr': {num: '0900000000', name: 'እዚህ ጋር ስምህን ፃፍ'}, 'cbe': {num: '1000000000000', name: 'እዚህ ጋር ስምህን ፃፍ'}, 'mpesa': {num: '0700000000', name: 'እዚህ ጋር ስምህን ፃፍ'} };
+    const bHeads = ['B', 'I', 'N', 'G', 'O'];
+
+    function selectBank(method, element, type) {
+        let gridId = type === 'dep' ? 'dep-bank-grid' : 'wit-bank-grid'; let buttons = document.querySelectorAll(`#${gridId} .bank-btn`); buttons.forEach(btn => btn.classList.remove('active')); element.classList.add('active');
+        if(type === 'dep') { let copyBox = document.getElementById('dep-copy-box'); copyBox.classList.remove('pop-anim'); void copyBox.offsetWidth; copyBox.classList.add('show', 'pop-anim'); document.getElementById('m-dep-acc').innerText = depAccounts[method].num; document.getElementById('m-dep-name').innerText = depAccounts[method].name; }
+    }
+    function copyModalNumber(id) { navigator.clipboard.writeText(document.getElementById(id).innerText); alert(currentLang === 'AM' ? "ቁጥሩ ኮፒ ተደርጓል!" : "Number Copied!"); }
+
+    async function processNewDeposit() {
+        let amt = parseFloat(document.getElementById('m-dep-amt').value); let activeBtn = document.querySelector('#dep-bank-grid .bank-btn.active'); let method = activeBtn ? activeBtn.getAttribute('data-bankname') : ''; let smsText = document.getElementById('m-dep-sms').value.trim();
+        if(!method) return alert(currentLang === 'AM' ? "እባክዎ ባንክ ይምረጡ!" : "Please select a bank!"); if(!amt || amt < 50) return alert(currentLang === 'AM' ? "ዝቅተኛው መጠን 50 ብር ነው!" : "Minimum is 50 ETB!"); if(!smsText) return alert(currentLang === 'AM' ? "እባክዎ የSMS ማረጋገጫ ያስገቡ!" : "Please paste the SMS!");
+        let btn = document.getElementById('m-dep-btn'); btn.innerText = currentLang === 'AM' ? "እየላከ ነው..." : "Submitting...";
+        
+        try { 
+            let res = await fetch('/api/request-tx', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: currentUser.phone, type: 'deposit', amount: amt, method: method, sms: smsText }) }); 
+            let data = await res.json(); 
+            
+            if(data.success) { 
+                alert(data.message); 
+                document.getElementById('m-dep-amt').value = ''; document.getElementById('m-dep-sms').value = ''; closeDepositModal(); 
+                
+                let hc = document.getElementById('wallet-history-list');
+                let noHist = document.getElementById('lbl-no-hist');
+                if (noHist) noHist.remove();
+                
+                let timeStr = new Date().toLocaleString();
+                let statText = data.status === 'Approved' ? '✅ APPROVED' : '⏳ PENDING';
+                let statClass = data.status === 'Approved' ? 'stat-approved' : 'stat-pending';
+                
+                let newTx = `<div class="tx-card" style="border-left: 4px solid #2dd4bf;"><div class="tx-left"><span class="tx-type" style="color:#2dd4bf;">DEPOSIT (ገቢ) (${method})</span><span class="tx-status ${statClass}">${statText}</span><span class="tx-date">${timeStr}</span></div><div class="tx-right"><span class="tx-amt" style="color: #2dd4bf;">+${Number(amt).toLocaleString('en-US', {minimumFractionDigits: 2})} ETB</span></div></div>`;
+                
+                hc.insertAdjacentHTML('afterbegin', newTx);
+                while(hc.children.length > 100) hc.removeChild(hc.lastChild);
+                
+                setTimeout(() => { fetchUpdatedBalance(); loadTransactionHistory(); }, 1500); 
+            } else {
+                alert(data.message);
+            }
+        } catch(e) {}
+        btn.innerText = currentLang === 'AM' ? "ገቢ አድርግ (SUBMIT)" : "SUBMIT DEPOSIT";
+    }
+
+    async function processNewWithdraw() {
+        let amt = parseFloat(document.getElementById('m-wit-amt').value); let activeBtn = document.querySelector('#wit-bank-grid .bank-btn.active'); let method = activeBtn ? activeBtn.getAttribute('data-bankname') : ''; let phone = document.getElementById('m-wit-phone').value.trim();
+        if(!method) return alert(currentLang === 'AM' ? "እባክዎ ባንክ ይምረጡ!" : "Please select a bank!"); if(!phone) return alert(currentLang === 'AM' ? "እባክዎ ስልክ ቁጥር ያስገቡ!" : "Please enter a phone number!"); if(!amt || amt < 50 || amt > 300000) return alert(currentLang === 'AM' ? "መጠን በ 50 እና 300,000 መሃል መሆን አለበት!" : "Amount must be between 50 and 300,000!");
+        let currentMainBal = parseFloat(currentUser.mainBalance) || 0; if(amt > currentMainBal) return alert(currentLang === 'AM' ? "በዋና (ያሸነፉት) ሂሳብዎ ላይ በቂ ገንዘብ የሎትም!" : "Insufficient main balance!"); 
+        let btn = document.getElementById('m-wit-btn'); btn.innerText = currentLang === 'AM' ? "እየላከ ነው..." : "Submitting...";
+        
+        try { 
+            let res = await fetch('/api/request-tx', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: currentUser.phone, type: 'withdraw', amount: amt, method: method, destinationPhone: phone }) }); 
+            let data = await res.json(); 
+            if(data.success) { 
+                alert(data.message); 
+                document.getElementById('m-wit-amt').value = ''; document.getElementById('m-wit-phone').value = ''; closeWithdrawModal(); 
+                
+                if(currentUser) {
+                    currentUser.mainBalance = currentMainBal - amt;
+                    updateUIBalance();
+                }
+
+                let hc = document.getElementById('wallet-history-list');
+                let noHist = document.getElementById('lbl-no-hist');
+                if (noHist) noHist.remove();
+                
+                let timeStr = new Date().toLocaleString();
+                let statText = data.status === 'Approved' ? '✅ APPROVED' : '⏳ PENDING';
+                let statClass = data.status === 'Approved' ? 'stat-approved' : 'stat-pending';
+
+                let newTx = `<div class="tx-card" style="border-left: 4px solid #fb7185;"><div class="tx-left"><span class="tx-type" style="color:#fb7185;">WITHDRAW (ወጪ) (${method})</span><span class="tx-status ${statClass}">${statText}</span><span class="tx-date">${timeStr}</span></div><div class="tx-right"><span class="tx-amt" style="color: #fb7185;">-${Number(amt).toLocaleString('en-US', {minimumFractionDigits: 2})} ETB</span></div></div>`;
+                
+                hc.insertAdjacentHTML('afterbegin', newTx);
+                while(hc.children.length > 100) hc.removeChild(hc.lastChild);
+
+                setTimeout(() => { fetchUpdatedBalance(); loadTransactionHistory(); }, 1500); 
+            } else { alert(data.message); } 
+        } catch(e) {}
+        btn.innerText = currentLang === 'AM' ? "ወጪ አድርግ" : "WITHDRAW FUNDS";
+    }
+
+    let isFetchingHistory = false;
+    async function loadTransactionHistory() {
+        if(!currentUser || isFetchingHistory) return;
+        const hc = document.getElementById('wallet-history-list'); 
+        
+        isFetchingHistory = true;
+        try {
+            let res = await fetch(`/api/user/transactions/${currentUser.phone}?t=` + Date.now()); 
+            let data = await res.json();
+            
+            if(data.success && data.txs && data.txs.length > 0) {
+                let tempHtml = '';
+                let displayTxs = data.txs;
+                
+                displayTxs.forEach(tx => {
+                    let title = tx.type;
+                    let amountColor = 'white';
+                    let sign = '';
+                    
+                    let txType = (tx.type || '').toLowerCase();
+                    if(txType.includes('dep')) { title = "DEPOSIT (ገቢ)"; amountColor = '#2dd4bf'; sign = '+'; }
+                    else if(txType.includes('wit')) { title = "WITHDRAW (ወጪ)"; amountColor = '#fb7185'; sign = '-'; }
+                    else if(txType.includes('win') || txType.includes('game')) { title = "🏆 BINGO WIN (አሸናፊ)"; amountColor = '#38bdf8'; sign = '+'; }
+
+                    let statTextRaw = (tx.status || '').toLowerCase();
+                    let statText = tx.status || 'UNKNOWN';
+                    let statClass = 'stat-pending';
+                    
+                    if(statTextRaw.includes('pend')) { statText = '⏳ PENDING'; statClass = 'stat-pending'; }
+                    else if(statTextRaw.includes('approv') || statTextRaw.includes('success')) { statText = '✅ APPROVED'; statClass = 'stat-approved'; }
+                    else if(statTextRaw.includes('reject') || statTextRaw.includes('fail')) { statText = '❌ REJECTED'; statClass = 'stat-rejected'; }
+                    else if(txType.includes('win')) { statText = '🎉 WON'; statClass = 'stat-win'; } 
+
+                    let time = new Date(tx.date).toLocaleString();
+                    let bonusStr = (tx.bonusGiven && tx.bonusGiven > 0) ? `<br><span style="color:var(--gold); font-size:11px; font-weight:bold;">+ ${tx.bonusGiven} ETB (Bonus)</span>` : '';
+
+                    tempHtml += `<div class="tx-card" style="border-left: 4px solid ${amountColor};"><div class="tx-left"><span class="tx-type" style="color:${amountColor};">${title} ${tx.method ? `(${tx.method})` : ''}</span><span class="tx-status ${statClass}">${statText}</span><span class="tx-date">${time}</span></div><div class="tx-right"><span class="tx-amt" style="color: ${amountColor};">${sign}${Number(tx.amount || 0).toLocaleString('en-US', {minimumFractionDigits: 2})} ETB ${bonusStr}</span></div></div>`;
+                });
+                
+                if(hc.innerHTML !== tempHtml) { hc.innerHTML = tempHtml; }
+            } else {
+                hc.innerHTML = `<p style="text-align:center; color:var(--text-gray); font-size:12px; font-weight:bold; margin-top:20px;">ታሪክ የለም / No History</p>`; 
+            }
+        } catch(e) {
+            console.error(e);
+        } finally {
+            isFetchingHistory = false;
+        }
+    }
+
+    let playerSeasonEndsAt = 0;
+    let playerSeasonStatus = 'idle';
+    function formatPlayerCountdown(ms) {
+        const left = Math.max(0, Math.floor(Number(ms) || 0));
+        const sec = Math.floor(left / 1000);
+        const days = Math.floor(sec / 86400);
+        const hours = String(Math.floor((sec % 86400) / 3600)).padStart(2, '0');
+        const mins = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+        const secs = String(sec % 60).padStart(2, '0');
+        return days > 0 ? `${days}d ${hours}:${mins}:${secs}` : `${hours}:${mins}:${secs}`;
+    }
+    function renderPlayerSeasonCountdown() {
+        const el = document.getElementById('rnk-countdown');
+        if (!el) return;
+        if (playerSeasonStatus === 'idle' || !playerSeasonEndsAt) {
+            el.innerText = currentLang === 'AM' ? 'ውድድሩ አልተጀመረም' : 'Contest not started';
+            return;
+        }
+        const left = playerSeasonEndsAt - Date.now();
+        if (left <= 0 || playerSeasonStatus === 'frozen') {
+            el.innerText = currentLang === 'AM' ? 'ውድድሩ ተቋርጧል (7 ቀን ተጠናቀቀ)' : 'Season frozen (7 days complete)';
+            return;
+        }
+        el.innerText = (currentLang === 'AM' ? 'ቀሪ ጊዜ: ' : 'Time left: ') + formatPlayerCountdown(left);
+    }
+    setInterval(renderPlayerSeasonCountdown, 1000);
+
+    function cardRankLabel(count) {
+        const n = Number(count || 0).toLocaleString();
+        return currentLang === 'AM' ? `${n} ካርድ` : `${n} cards`;
+    }
+
+    async function loadLeaderboard(element) {
+        showPage('rank', element);
+        const rankContent = document.getElementById('rank-content');
+        rankContent.innerHTML = `<p style="text-align:center; color:var(--text-gray); font-size:12px; padding-top:20px;">እየጫነ ነው (Loading)...</p>`;
+        
+        try {
+            let res = await fetch('/api/leaderboard?t=' + Date.now()); 
+            let data = await res.json();
+            const season = data.season || {};
+            playerSeasonStatus = season.status || 'idle';
+            playerSeasonEndsAt = Number(season.end) || 0;
+            const title = document.getElementById('rnk-title');
+            if (title) title.innerText = currentLang === 'AM' ? 'የ7 ቀን የካርድ ደረጃ' : '7-day card leaderboard';
+            renderPlayerSeasonCountdown();
+            if(data.success && data.leaderboard && data.leaderboard.length > 0) {
+                let ranks = data.leaderboard;
+                let html = '';
+
+                html += `<div class="podium-container">`;
+                
+                if(ranks[1]) {
+                    let name2 = ranks[1].name || "Player";
+                    let prize2 = cardRankLabel(ranks[1].cards || ranks[1].won || ranks[1].amount || 0);
+                    html += `<div class="podium-box podium-2">
+                                <div class="podium-avatar p-2-ava">${name2.charAt(0).toUpperCase()}</div>
+                                <div class="podium-name">${name2}</div>
+                                <div class="podium-prize">${prize2}</div>
+                             </div>`;
+                }
+
+                if(ranks[0]) {
+                    let name1 = ranks[0].name || "Player";
+                    let prize1 = cardRankLabel(ranks[0].cards || ranks[0].won || ranks[0].amount || 0);
+                    html += `<div class="podium-box podium-1">
+                                <div class="crown-icon">👑</div>
+                                <div class="podium-avatar p-1-ava">${name1.charAt(0).toUpperCase()}</div>
+                                <div class="podium-name" style="font-size:12px;">${name1}</div>
+                                <div class="podium-prize" style="font-size:12px;">${prize1}</div>
+                             </div>`;
+                }
+
+                if(ranks[2]) {
+                    let name3 = ranks[2].name || "Player";
+                    let prize3 = cardRankLabel(ranks[2].cards || ranks[2].won || ranks[2].amount || 0);
+                    html += `<div class="podium-box podium-3">
+                                <div class="podium-avatar p-3-ava">${name3.charAt(0).toUpperCase()}</div>
+                                <div class="podium-name">${name3}</div>
+                                <div class="podium-prize">${prize3}</div>
+                             </div>`;
+                }
+                html += `</div>`;
+
+                html += `<div style="padding: 0 10px;">`;
+                for(let i = 3; i < ranks.length; i++) {
+                    let name = ranks[i].name || "Player";
+                    let prize = cardRankLabel(ranks[i].cards || ranks[i].won || ranks[i].amount || 0);
+                    html += `<div class="rank-card">
+                                <div style="display:flex; align-items:center;">
+                                    <div class="rank-badge">${i+1}</div>
+                                    <span style="font-size:12px; color:white; font-weight:bold;">${name}</span>
+                                </div>
+                                <span style="font-size:13px; color:var(--gold); font-weight:900; font-family:monospace;">${prize}</span>
+                             </div>`;
+                }
+                html += `</div>`;
+                
+                rankContent.innerHTML = html;
+            } else if (playerSeasonStatus === 'idle') {
+                rankContent.innerHTML = `<p style="text-align:center; color:var(--text-gray); font-size:12px; padding-top:20px;">ውድድሩ አልተጀመረም (Contest not started)</p>`;
+            } else {
+                rankContent.innerHTML = `<p style="text-align:center; color:var(--text-gray); font-size:12px; padding-top:20px;">ምንም ካርድ ግዢ የለም (No card purchases yet)</p>`;
+            }
+        } catch(e) {
+            rankContent.innerHTML = `<p style="text-align:center; color:var(--text-gray); font-size:12px; padding-top:20px;">ኮኔክሽን የለም (Connection error)</p>`;
+        }
+    }
+
+    async function savePassword() {
+        let oldPass = document.getElementById('pw-old').value; let newPass = document.getElementById('pw-new').value; let confPass = document.getElementById('pw-conf').value;
+        if(!oldPass || !newPass || !confPass) return alert(currentLang === 'AM' ? "እባክዎ ሁሉንም ያስገቡ!" : "Please fill all fields!"); if(newPass !== confPass) return alert(currentLang === 'AM' ? "አዲሱ የይለፍ ቃል አይመሳሰልም!" : "New passwords don't match!");
+        try {
+            let res = await fetch('/api/user/change-password', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone: currentUser.phone, oldPass, newPass}) }); let data = await res.json(); alert(data.message);
+            if(data.success) { localStorage.setItem('bingo_user_pass', newPass); document.getElementById('pw-old').value = ''; document.getElementById('pw-new').value = ''; document.getElementById('pw-conf').value = ''; document.getElementById('pw-modal-overlay').style.display='none'; }
+        } catch(e) {}
+    }
+
+    function getDeviceFingerprint() {
+        try {
+            let id = localStorage.getItem('bingo_device_fp');
+            if (id && id.length >= 8) return id;
+            const raw = [
+                navigator.userAgent || '',
+                navigator.language || '',
+                (screen && screen.width) ? (screen.width + 'x' + screen.height) : '',
+                String(new Date().getTimezoneOffset()),
+                String(navigator.hardwareConcurrency || 0)
+            ].join('|');
+            id = btoa(unescape(encodeURIComponent(raw))).replace(/[^a-zA-Z0-9]/g, '').slice(0, 48);
+            id = (id || 'device') + '-' + Math.random().toString(36).slice(2, 12);
+            localStorage.setItem('bingo_device_fp', id);
+            return id;
+        } catch (e) {
+            return 'device-' + Math.random().toString(36).slice(2, 12);
+        }
+    }
+
+    function closeGameHistory() {
+        document.getElementById('game-history-overlay').style.display = 'none';
+    }
+
+    async function openGameHistory() {
+        if (!currentUser) return;
+        const overlay = document.getElementById('game-history-overlay');
+        const list = document.getElementById('game-history-list');
+        overlay.style.display = 'block';
+        list.innerHTML = '<p style="text-align:center; color:#94a3b8;">Loading...</p>';
+        try {
+            const res = await fetch('/api/user/game-history/' + encodeURIComponent(currentUser.phone) + '?t=' + Date.now());
+            const data = await res.json();
+            if (!data.success || !data.rounds || !data.rounds.length) {
+                list.innerHTML = '<p style="text-align:center; color:#94a3b8;">No rounds yet.</p>';
+                return;
+            }
+            list.innerHTML = data.rounds.map((round) => {
+                const when = new Date(round.date).toLocaleString();
+                const nums = (round.calledNumbers || []).join(', ') || '-';
+                const cards = (round.ticketIds || []).map((id) => '#' + id).join(', ') || '-';
+                const won = round.outcome === 'win';
+                let payout = won
+                    ? (round.solo
+                        ? `Full prize: ${Number(round.share).toLocaleString()} ETB`
+                        : `Total pot ${Number(round.totalPot).toLocaleString()} ETB · ${round.coWinners} winners · your share ${Number(round.share).toLocaleString()} ETB`)
+                    : 'No payout';
+                const outcome = won ? 'WIN' : 'LOSS';
+                const color = won ? '#4ade80' : '#fb7185';
+                return `<div style="background:rgba(0,0,0,0.45); border:1px solid rgba(240,208,125,0.25); border-radius:12px; padding:12px; margin-bottom:10px;">
+                    <div style="display:flex; justify-content:space-between; gap:8px;">
+                        <b style="color:white;">Round #${round.gameId}</b>
+                        <b style="color:${color};">${outcome}</b>
+                    </div>
+                    <div style="color:#94a3b8; font-size:11px; margin:4px 0 8px;">${when}</div>
+                    <div style="color:#e2e8f0; font-size:12px; margin-bottom:6px;"><b>Your cards:</b> ${cards}</div>
+                    <div style="color:#f0d07d; font-size:12px; margin-bottom:6px;">${payout}</div>
+                    <details>
+                        <summary style="cursor:pointer; color:#38bdf8; font-size:12px;">Called numbers</summary>
+                        <div style="color:#cbd5e1; font-size:11px; line-height:1.45; margin-top:6px; word-break:break-word;">${nums}</div>
+                    </details>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            list.innerHTML = '<p style="text-align:center; color:#fb7185;">Could not load game history.</p>';
+        }
+    }
+
+    function toggleAuthMode() {
+        isLoginMode = !isLoginMode;
+        document.getElementById('name-group').style.display = isLoginMode ? 'none' : 'block'; document.getElementById('ref-group').style.display = isLoginMode ? 'none' : 'block'; document.getElementById('terms-box').style.display = isLoginMode ? 'none' : 'block';
+        if(isLoginMode) { document.getElementById('start-btn').innerText = "ግባ (LOGIN)"; document.getElementById('auth-subtitle').innerText = "ወደ አካውንትዎ ይግቡ"; document.getElementById('toggle-auth-text').innerText = "አዲስ አካውንት ይክፈቱ (Register)";
+        } else { document.getElementById('start-btn').innerText = "ወደ ጌም ግባ (REGISTER)"; document.getElementById('auth-subtitle').innerText = "ይመዝገቡ (10 ETB ቦነስ ያገኛሉ)"; document.getElementById('toggle-auth-text').innerText = "አካውንት አለዎት? ይግቡ (Login)"; }
+        v();
+    }
+
+    function v() { 
+        let phone = document.getElementById('reg-phone').value.trim(); let pass = document.getElementById('reg-pass').value.trim(); let name = document.getElementById('reg-name').value.trim(); let btn = document.getElementById('start-btn');
+        let phoneValid = (phone.startsWith('09') || phone.startsWith('07')) && phone.length === 10 && /^\d+$/.test(phone); let passValid = pass.length >= 4;
+        if(isLoginMode) { btn.disabled = !(phoneValid && passValid); } else { let nameValid = name.length > 0; let c1 = document.getElementById('c1').checked; let c2 = document.getElementById('c2').checked; btn.disabled = !(phoneValid && passValid && nameValid && c1 && c2); }
+    }
+
+    async function authAction() {
+        let phone = document.getElementById('reg-phone').value.trim(); let pass = document.getElementById('reg-pass').value.trim(); let name = document.getElementById('reg-name').value.trim(); let refCode = document.getElementById('reg-ref').value.trim();
+        document.getElementById('start-btn').innerText = currentLang === 'AM' ? "እባክዎ ይጠብቁ..." : "Please wait..."; document.getElementById('start-btn').disabled = true;
+        let endpoint = isLoginMode ? '/api/login' : '/api/register';
+        
+        try {
+            let res = await fetch(endpoint, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone, password: pass, name, refCode, fingerprint: getDeviceFingerprint()}) }); 
+            let data;
+            const contentType = res.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                data = await res.json();
+            } else {
+                const text = await res.text();
+                const cleanText = text.replace(/<[^>]*>/g, '').trim();
+                data = { success: false, message: `Server error (${res.status}): ${cleanText || res.statusText || 'Non-JSON response'}` };
+            }
+            
+            if(data.success) { 
+                if(isLoginMode) { 
+                    localStorage.setItem('bingo_user_phone', phone); localStorage.setItem('bingo_user_pass', pass); 
+                    processLoginSuccess(data.user); 
+                } else { 
+                    alert(currentLang === 'AM' ? "✅ በተሳካ ሁኔታ ተመዝግበዋል! ወደ አካውንትዎ እየገባ ነው..." : "✅ Registered successfully! Logging in...");
+                    toggleAuthMode();
+                    
+                    document.getElementById('start-btn').disabled = true;
+                    document.getElementById('start-btn').innerText = currentLang === 'AM' ? "እየገባ ነው..." : "Logging in...";
+                    
+                    let logRes = await fetch('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone, password: pass}) });
+                    let logData;
+                    const logContentType = logRes.headers.get('content-type') || '';
+                    if (logContentType.includes('application/json')) {
+                        logData = await logRes.json();
+                    } else {
+                        const logText = await logRes.text();
+                        const cleanLogText = logText.replace(/<[^>]*>/g, '').trim();
+                        logData = { success: false, message: `Server error (${logRes.status}): ${cleanLogText || logRes.statusText || 'Non-JSON response'}` };
+                    }
+                    
+                    if(logData.success) {
+                        localStorage.setItem('bingo_user_phone', phone); localStorage.setItem('bingo_user_pass', pass); 
+                        processLoginSuccess(logData.user); 
+                    } else {
+                        alert(logData.message || (currentLang === 'AM' ? "እባክዎ ዳግም ይግቡ (Login)" : "Please login again"));
+                        document.getElementById('start-btn').disabled = false;
+                        document.getElementById('start-btn').innerText = currentLang === 'AM' ? "ግባ (LOGIN)" : "LOGIN";
+                    }
+                }
+            } else { 
+                alert(data.message || (currentLang === 'AM' ? "ስህተት አጋጥሟል!" : "Error occurred!")); 
+                document.getElementById('start-btn').disabled = false; 
+                document.getElementById('start-btn').innerText = isLoginMode ? (currentLang === 'AM' ? "ግባ (LOGIN)" : "LOGIN") : (currentLang === 'AM' ? "ወደ ጌም ግባ (REGISTER)" : "REGISTER"); 
+            }
+        } catch(e) {
+            const errDetail = (e && e.message) ? e.message : String(e);
+            alert((currentLang === 'AM' ? "የሰርቨር ስህተት፡ " : "Server Error: ") + errDetail);
+            document.getElementById('start-btn').disabled = false; 
+            document.getElementById('start-btn').innerText = isLoginMode ? (currentLang === 'AM' ? "ግባ (LOGIN)" : "LOGIN") : (currentLang === 'AM' ? "ወደ ጌም ግባ (REGISTER)" : "REGISTER"); 
+        }
+    }
+
+    function processLoginSuccess(userObj) {
+        currentUser = userObj;
+        document.getElementById('hdr-name').innerText = currentUser.name; document.getElementById('hdr-phone').innerText = currentUser.phone; document.getElementById('prof-name').innerText = currentUser.name; document.getElementById('prof-phone').innerText = currentUser.phone; document.getElementById('hdr-avatar').innerText = currentUser.name.charAt(0).toUpperCase(); document.getElementById('prof-avatar').innerText = currentUser.name.charAt(0).toUpperCase();
+        
+        document.getElementById('prof-played').innerText = currentUser.played || 0; 
+        document.getElementById('prof-won').innerText = Number(currentUser.won || 0).toLocaleString('en-US', {minimumFractionDigits: 2}) + " ETB";
+        
+        let myCode = currentUser.refCode ? currentUser.refCode : currentUser.phone;
+        
+        let myRefLink = "https://t.me/PHOENIX_BOT_USERNAME?start=" + myCode;
+        document.getElementById('prof-ref-text').innerText = "t.me/PHOENIX_BOT_USERNAME?start=" + myCode;
+        
+        document.getElementById('prof-btn-copy').onclick = () => { navigator.clipboard.writeText(myRefLink); alert(currentLang === 'AM' ? 'ሊንኩ ኮፒ ተደርጓል!' : 'Link Copied!'); };
+        
+        updateUIBalance(); document.getElementById('auth-page').classList.remove('active-page'); document.getElementById('navbar').style.display = 'flex'; document.getElementById('global-header').style.display = 'flex'; handleHomeNav(document.getElementById('nav-home'));
+    }
+
+    async function fetchUpdatedBalance() {
+        if(!currentUser) return;
+        let res = await fetch(`/api/getUser/${currentUser.phone}`); let data = await res.json();
+        if(data.success) { currentUser = data.user; updateUIBalance(); document.getElementById('prof-played').innerText = currentUser.played || 0; document.getElementById('prof-won').innerText = Number(currentUser.won || 0).toLocaleString('en-US', {minimumFractionDigits: 2}) + " ETB"; }
+    }
+
+    function updateUIBalance() {
+        document.getElementById('hdr-main-balance').innerText = (parseFloat(currentUser.mainBalance) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        document.getElementById('hdr-play-balance').innerText = (parseFloat(currentUser.playBalance) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        document.getElementById('main-bal').innerText = (parseFloat(currentUser.mainBalance) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        let playEl = document.getElementById('play-bal'); if(playEl) playEl.innerText = (parseFloat(currentUser.playBalance) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    function formatTime(seconds) { if(isNaN(seconds)) return seconds; let m = Math.floor(seconds / 60); let s = seconds % 60; return `0${m}:${s < 10 ? '0' : ''}${s}`; }
+
+    socket.on('balance_updated', async (phone) => { if(currentUser && phone === currentUser.phone) { await fetchUpdatedBalance(); if(document.getElementById('wallet-page').classList.contains('active-page')) loadTransactionHistory(); } });
+    socket.on('pending_deposits_cleared', () => { if(currentUser) loadTransactionHistory(); });
+
+    socket.on('bet_error', (msg) => {
+        alert(msg);
+        if (currentUser) {
+            socket.emit('get_initial_data', currentUser.phone);
+            fetchUpdatedBalance();
+        }
+    });
+
+    socket.on('ticket_cancelled_success', (tid) => {
+        userTicketsData = userTicketsData.filter(t => t.id !== tid);
+        renderGridTakenStates();
+        renderConfirmedTickets();
+        updateBetPreview();
+        fetchUpdatedBalance(); 
+    });
+
+    socket.on('sync_data', (data) => {
+        globalTakenTickets = data.globalTakenTickets || []; called = data.calledNumbers || []; userTicketsData = data.myTickets || [];
+        let gballs = document.getElementById('g-balls'); if(gballs) gballs.innerText = called.length + "/75"; 
+        document.getElementById('t-page-balls').innerText = called.length + "/75"; 
+        
+        isProcessingTicket = false;
+        renderGridTakenStates();
+        updateBetPreview();
+        
+        renderConfirmedTickets();
+        if(userTicketsData.length > 0) { 
+            document.getElementById('t-info').innerText = "የገዙት ካርቴላ ብዛት: " + userTicketsData.length;
+        } else { 
+            document.getElementById('t-info').innerText = "እስካሁን ካርቴላ አልገዙም"; 
+        }
+        
+        document.querySelectorAll('.mb-cell').forEach(c => c.classList.remove('called', 'current'));
+        let hst = document.getElementById('history-scroll-top'); if(hst) hst.innerHTML = '';
+        document.getElementById('ticket-history-bar').innerHTML = '';
+        called.forEach((num, idx) => { updateLiveUI(num, idx === called.length - 1); });
+    });
+
+    socket.on('update_taken_tickets', (ticketsArr) => { globalTakenTickets = ticketsArr; renderGridTakenStates(); });
+
+    function renderGridTakenStates() {
+        document.querySelectorAll('.num-btn').forEach(btn => {
+            let num = parseInt(btn.getAttribute('data-num')); 
+            btn.innerText = num; 
+
+            let isMine = userTicketsData && userTicketsData.some(t => t.id === num); 
+            let isTakenGlobally = globalTakenTickets.includes(num);
+
+            btn.className = 'num-btn'; 
+
+            if (isMine) { 
+                btn.classList.add('bought-by-me'); 
+            } 
+            else if (isTakenGlobally) {
+                btn.classList.add('taken'); 
+            }
+        });
+    }
+
+    socket.on('game_status', (data) => {
+        let roundIdEl = document.getElementById('top-round-id');
+        if(roundIdEl && data.gameId) roundIdEl.innerText = "#" + data.gameId;
+
+        currentTicketPrice = data.ticketPrice || 10;
+        let betValEl = document.getElementById('g-val-bet');
+        if(betValEl) betValEl.innerText = currentTicketPrice.toFixed(2);
+
+        let lblSelect = document.getElementById('h-lbl-select');
+        if(lblSelect) lblSelect.innerText = currentLang === 'AM' ? `ካርቴላ ይምረጡ (${currentTicketPrice} ብር)` : `Select Tickets (${currentTicketPrice} ETB)`;
+
+        let dynBanner = document.getElementById('dynamic-dep-banner');
+        if(dynBanner) { dynBanner.innerHTML = currentLang === 'AM' ? "🎁 ልዩ ስጦታ<br>ከ 100 ብር ጀምሮ ገቢ ሲያደርጉ ተጨማሪ 20% ጉርሻ ያግኙ!" : "🎁 Special Gift<br>Get 20% bonus when you deposit 100 ETB or more!"; }
+        
+        let dynWitBanner = document.getElementById('dynamic-wit-banner');
+        if(dynWitBanner) { dynWitBanner.innerHTML = currentLang === 'AM' ? "⚠️ <b>ማሳሰቢያ:</b> ለደህንነት ሲባል ገንዘብ ወጪ ማድረግ የሚቻለው <b>ሲመዘገቡ በተጠቀሙበት ስልክ ቁጥር</b> ብቻ ነው።" : "⚠️ <b>Notice:</b> For security reasons, you can only withdraw to the <b>phone number you registered with</b>."; }
+
+        currentJackpotBoost = data.jackpotBoost || 0;
+        let actualJackpot = Number(data.totalPrizePool || 0) + Number(currentJackpotBoost || 0);
+
+        document.getElementById('jp').innerText = actualJackpot.toLocaleString('en-US', {minimumFractionDigits: 2}); 
+        let jpAmtBox = document.getElementById('g-jp-amt'); if(jpAmtBox) jpAmtBox.innerText = actualJackpot.toLocaleString('en-US', {minimumFractionDigits: 2});
+        let tPagePrize = document.getElementById('t-page-prize'); if(tPagePrize) tPagePrize.innerText = actualJackpot.toLocaleString('en-US', {minimumFractionDigits: 2}) + " ETB";
+        
+        let gid = document.getElementById('g-id'); if(gid && data.gameId) gid.innerText = "#" + data.gameId; 
+        let gprize = document.getElementById('g-prize'); if(gprize) gprize.innerText = actualJackpot.toLocaleString('en-US', {minimumFractionDigits: 2});
+        
+        if(data.maxTickets) {
+            maxTicketsLimit = data.maxTickets;
+            document.getElementById('grid-sel-count').nextElementSibling.innerText = "/ " + maxTicketsLimit;
+        }
+
+        let tla = document.getElementById('ticket-live-arrow'); if(tla) tla.style.display = 'none';
+
+        if (data.bankInfo) {
+            depAccounts.telebirr = { num: data.bankInfo.tbNum, name: data.bankInfo.tbName };
+            depAccounts.cbe = { num: data.bankInfo.cbeNum, name: data.bankInfo.cbeName };
+            depAccounts.mpesa = { num: data.bankInfo.mpesaNum || '0700000000', name: data.bankInfo.mpesaName || 'Safaricom Name' };
+
+            let activeBtn = document.querySelector('#dep-bank-grid .bank-btn.active');
+            if (activeBtn) {
+                let method = activeBtn.getAttribute('data-bankname');
+                document.getElementById('m-dep-acc').innerText = depAccounts[method].num;
+                document.getElementById('m-dep-name').innerText = depAccounts[method].name;
+            }
+        }
+
+        let navTicket = document.getElementById('nav-item-ticket');
+
+        if (data.state === "MAINTENANCE") {
+            document.body.classList.add('paused-mode');
+            document.getElementById('timer').innerText = "PAUSED";
+            let statEl = document.querySelector('.nt-status'); if(statEl) statEl.innerText = currentLang === 'AM' ? "ጥገና ላይ ነን (Paused)" : "Maintenance Mode";
+            return; 
+        } else {
+            document.body.classList.remove('paused-mode');
+        }
+
+        if (data.state === "WAITING") {
+            isGameRunningLocally = false;
+            if(navTicket) navTicket.style.display = 'none'; 
+            document.getElementById('bingo-overlay').style.display = 'none';
+            document.getElementById('timer').innerText = formatTime(data.timer); 
+            let statEl = document.getElementById('timer-status-text'); if(statEl) statEl.innerText = currentLang === 'AM' ? "ጨዋታው ሊጀምር ነው" : "Game is Starting";
+
+            if (currentGameState !== "WAITING") {
+                currentGameState = "WAITING";
+                document.querySelectorAll('.mb-cell').forEach(c => c.classList.remove('called', 'current'));
+                let hst = document.getElementById('history-scroll-top'); if(hst) hst.innerHTML = ''; 
+                document.getElementById('ticket-history-bar').innerHTML = `<span style="color:var(--text-gray); font-size:11px;" id="lbl-hist-wait">${currentLang === 'AM' ? 'ገና አልጀመረም...' : 'Waiting to start...'}</span>`;
+                
+                let cb = document.getElementById('caller-ball'); if(cb) cb.innerText = "--"; 
+                let ticketCb = document.getElementById('ticket-caller-ball'); if(ticketCb) ticketCb.innerText = "--";
+                let gballs = document.getElementById('g-balls'); if(gballs) gballs.innerText = "0/75"; 
+                document.getElementById('t-page-balls').innerText = "0/75"; 
+                called = []; 
+                
+                if (currentUser) {
+                    userTicketsData = []; globalTakenTickets = []; 
+                    initGrid(); updateBetPreview(); 
+                    document.getElementById('ticket-list').innerHTML = ''; 
+                    let gmt = document.getElementById('game-mini-tickets'); if(gmt) gmt.innerHTML = '';
+                    
+                    document.getElementById('t-info').innerText = currentLang === 'AM' ? "ካርቴላ አልገዙም! እባክዎ ቀጣይ ዙር እስኪጀምር ይጠብቁ" : "No Tickets! Please wait for the next round.";
+                    
+                    if (document.getElementById('ticket-page').classList.contains('active-page')) { 
+                        showPage('home', document.getElementById('nav-home')); 
+                    }
+                }
+            }
+            
+        } else if (data.state === "PLAYING") {
+            isGameRunningLocally = true; 
+            if(navTicket) navTicket.style.display = 'flex'; 
+            
+            document.getElementById('timer').innerText = "LIVE 🔴"; 
+            let statEl = document.getElementById('timer-status-text'); if(statEl) statEl.innerText = currentLang === 'AM' ? "ጨዋታው በመካሄድ ላይ ነው" : "Game is LIVE";
+
+            let tla = document.getElementById('ticket-live-arrow'); if(tla && userTicketsData.length > 0) tla.style.display = 'block';
+
+            if (currentGameState !== "PLAYING") {
+                currentGameState = "PLAYING"; 
+                if (currentUser && !document.getElementById('ticket-page').classList.contains('active-page')) { showPage('ticket', document.getElementById('nav-item-ticket')); }
+            }
+            called = data.calledNumbers || []; 
+            let gballs = document.getElementById('g-balls'); if(gballs) gballs.innerText = called.length + "/75";
+            document.getElementById('t-page-balls').innerText = called.length + "/75"; 
+            
+            document.querySelectorAll('.mb-cell').forEach(c => c.classList.remove('called', 'current'));
+            let hst = document.getElementById('history-scroll-top'); if(hst) hst.innerHTML = '';
+            document.getElementById('ticket-history-bar').innerHTML = '';
+            called.forEach((num, idx) => { updateLiveUI(num, idx === called.length - 1); });
+        }
+    });
+
+    socket.on('new_number', (num) => {
+        if (!isGameRunningLocally) return;
+        called.push(num); 
+        playNumberSound(num); 
+        let gballs = document.getElementById('g-balls'); if(gballs) gballs.innerText = called.length + "/75"; 
+        document.getElementById('t-page-balls').innerText = called.length + "/75"; 
+        updateLiveUI(num, true);
+        userTicketsData.forEach(t => { for(let c=0; c<5; c++) { for(let r=0; r<5; r++) { if(t.grid[c][r] === num) t.marks[c][r] = 1; } } });
+    });
+
+    socket.on('game_winner', (data) => {
+        playBingoSound(); 
+        document.getElementById('bingo-overlay').style.display = 'flex'; 
+        
+        let winIncomingLabel = document.getElementById('lbl-win-incoming');
+        if (data.isShared || data.winnerCount > 1) {
+            winIncomingLabel.innerText = currentLang === 'AM' ? "✨ ሽልማቱ ለአሸናፊዎቹ ገቢ እየተደረገ ነው... ✨" : "✨ Sending prize to winners... ✨";
+        } else {
+            winIncomingLabel.innerText = currentLang === 'AM' ? "✨ ሽልማቱ ለአሸናፊው ገቢ እየተደረገ ነው... ✨" : "✨ Sending prize to the winner... ✨";
+        }
+        
+        let amIWinner = false;
+        if (currentUser && currentUser.phone && data.phone.includes(currentUser.phone)) { amIWinner = true; }
+
+        let titleHtml = amIWinner ? (currentLang === 'AM' ? "🎉 እንኳን ደስ አሎት! 🎉" : "🎉 CONGRATULATIONS! 🎉") : (currentLang === 'AM' ? "አሸናፊ (WINNER)" : "WINNER");
+        let nameHtml = "";
+
+        if (amIWinner) {
+            nameHtml = data.isShared ? (currentLang === 'AM' ? "እርስዎ ከሌሎች ጋር በጋራ አሸንፈዋል!" : "You won with others!") : (currentLang === 'AM' ? "እርስዎ አሸንፈዋል! 👏" : "You are the WINNER! 👏");
+        } else {
+            nameHtml = data.isShared ? (currentLang === 'AM' ? "እነዚህ ተጫዋቾች አሸንፈዋል" : "These players have won") : data.winnerName;
+        }
+
+        let sharedListHtml = "";
+        if (data.isShared && data.winnerDetails) {
+            sharedListHtml = `<div style="background: rgba(0,0,0,0.5); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-top: 15px; width: 100%; box-sizing: border-box; box-shadow: inset 0 0 10px rgba(0,0,0,0.8);">
+                <h4 style="margin:0 0 10px 0; color:#38bdf8; font-size:14px; text-align:center;">✨ ${currentLang === 'AM' ? "አሸናፊዎች" : "Winners"} (${data.winnerCount}) ✨</h4>
+                <ul style="list-style:none; padding:0; margin:0; text-align:left; max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px;">`;
+            data.winnerDetails.forEach(w => {
+                sharedListHtml += `<li style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div style="font-size: 14px; font-weight: bold; color: #ffffff;">👤 ${w.name}</div>
+                        <div style="color:#94a3b8; font-size:11px; margin-top:4px;">${currentLang === 'AM' ? "ካርቴላ" : "Ticket"}: <b style="color:var(--gold); font-size:13px;">#${w.ticket}</b></div>
+                    </div>
+                    <div style="color:var(--cyan); font-weight:900; font-size: 15px;">${w.prize.toLocaleString('en-US', {maximumFractionDigits: 0})} ETB</div>
+                </li>`;
+            });
+            sharedListHtml += `</ul></div>`;
+            nameHtml = currentLang === 'AM' ? "እነዚህ ተጫዋቾች አሸንፈዋል" : "These players have won";
+        }
+
+        let winnerCard = document.querySelector('.winner-card');
+
+        let winPrizeBoxHtml = `
+            <div style="background: rgba(0, 0, 0, 0.5); padding: 15px; border-radius: 15px; border: 1px solid rgba(255,255,255,0.1); box-shadow: inset 0 0 15px rgba(0,0,0,0.5);">
+                <p style="margin:0; font-size:11px; color:#94a3b8; font-weight:bold; letter-spacing:1px; text-transform:uppercase;">${currentLang === 'AM' ? "የገንዘብ ሽልማት (Prize)" : "Prize Amount"}</p>
+                <h1 style="margin:8px 0 0 0; color:#34d399; font-size: 26px; text-shadow: 0 0 10px rgba(52, 211, 153, 0.4);" id="win-prize">${data.totalPrize.toLocaleString('en-US', {maximumFractionDigits: 0})} ETB</h1>
+            </div>
+        `;
+
+        if (!data.isShared) {
+            winnerCard.innerHTML = `
+                <div style="font-size: 35px; margin-top: -15px; filter: drop-shadow(0 10px 10px rgba(0,0,0,0.8));">🏆</div>
+                <h3 style="margin:5px 0 0 0; color:${amIWinner ? '#dcb360' : 'white'}; font-size:${amIWinner ? '18px' : '16px'}; letter-spacing: 2px; text-transform: uppercase;">${titleHtml}</h3>
+                <h1 class="bingo-text" style="font-size:28px;">B I N G O</h1>
+                <div id="win-ticket-display"></div>
+                <h2 id="win-name" style="margin:10px 0 10px 0; color:${amIWinner ? '#38bdf8' : '#ffffff'}; font-size:20px; font-weight:900; text-shadow: 0 0 15px rgba(255,255,255,0.3); line-height: 1.2;">${nameHtml}</h2>
+                <div style="margin-bottom: 15px; background: rgba(0,0,0,0.4); padding: 8px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                    <div style="font-size:11px; color:#94a3b8; font-weight:bold;">${currentLang === 'AM' ? "አሸናፊ ካርቴላ" : "Winning Ticket"}: <b id="win-ticket" style="font-size:16px; color:var(--gold); text-shadow: 0 0 10px rgba(248, 181, 0, 0.3);">#${data.ticketId}</b></div>
+                </div>
+                ${winPrizeBoxHtml}
+            `;
+
+            let g = data.ticketGrid; let cld = data.calledNumbers;
+            let html = `<div style="width:210px; margin: 10px auto 0 auto; border-radius: 12px; overflow: hidden; background: var(--panel); box-shadow: 0 10px 25px rgba(0,0,0,0.8); border: 2px solid var(--gold); padding: 5px;">`;
+            html += `<div class="preview-t-grid" style="gap: 1px; background: rgba(255,255,255,0.1); border-radius: 6px; overflow: hidden;">`;
+            
+            for(let i=0; i<5; i++) { 
+                html += `<div class="preview-t-head" style="background:var(--gold-grad); color:#000; height:28px; font-size:12px; display:flex; align-items:center; justify-content:center;">${bHeads[i]}</div>`; 
+            }
+            for(let r=0; r<5; r++){
+                for(let c=0; c<5; c++){
+                    let num = g[c][r];
+                    if(r===2 && c===2) { 
+                        html += `<div class="preview-t-cell marked" style="background:#fff; height:32px; display:flex; align-items:center; justify-content:center; color:var(--gold); font-size:18px; text-shadow:0 0 5px var(--gold);">★</div>`; 
+                    } 
+                    else if(cld.includes(num)) { 
+                        html += `<div class="preview-t-cell" style="background:#fff; height:32px; display:flex; align-items:center; justify-content:center;"><div class="win-gold-ball">${num}</div></div>`; 
+                    } 
+                    else { 
+                        html += `<div class="preview-t-cell" style="background:#fff; color:#000; height:32px; font-size:14px; font-weight:bold; display:flex; align-items:center; justify-content:center;">${num}</div>`; 
+                    }
+                }
+            }
+            html += `</div></div>`; 
+            document.getElementById('win-ticket-display').innerHTML = html;
+
+        } else {
+            winnerCard.innerHTML = `
+                <div style="font-size: 40px; margin-top: -15px; filter: drop-shadow(0 10px 10px rgba(0,0,0,0.8));">🏆</div>
+                <h3 style="margin:5px 0 0 0; color:${amIWinner ? '#dcb360' : 'white'}; font-size:${amIWinner ? '20px' : '16px'}; letter-spacing: 2px; text-transform: uppercase;">${titleHtml}</h3>
+                <h1 class="bingo-text" style="margin: 10px 0;">B I N G O</h1>
+                <h2 style="margin:10px 0 15px 0; color:#38bdf8; font-size:22px; font-weight: 900; text-shadow: 0 0 15px rgba(56,189,248,0.3);">${nameHtml}</h2>
+                ${winPrizeBoxHtml}
+                ${sharedListHtml}
+            `;
+        }
+
+        for (let i = 0; i < 40; i++) {
+            let coin = document.createElement('div');
+            coin.className = 'confetti-rain';
+            coin.innerText = Math.random() > 0.5 ? '💵' : '🎉';
+            coin.style.left = (Math.random() * 100) + 'vw';
+            coin.style.animationDuration = (2 + Math.random() * 3) + 's';
+            coin.style.animationDelay = (Math.random() * 1.5) + 's';
+            document.body.appendChild(coin);
+            setTimeout(() => coin.remove(), 6000);
+        }
+
+        if(amIWinner) fetchUpdatedBalance(); 
+    });
+
+    function initGrid() { 
+        const box = document.getElementById('grid-box'); box.innerHTML = ''; 
+        for(let i=1; i<=550; i++) { 
+            let d = document.createElement('div'); 
+            d.className='num-btn'; 
+            d.innerText=i; 
+            d.id = 'gbtn-' + i;
+            d.setAttribute('data-num', i);
+            
+            d.onclick = (e) => { 
+                e.preventDefault(); 
+                if (!socket.connected) {
+                    if (navigator.onLine === false) {
+                        showOfflineAlert();
+                    } else {
+                        showOfflineAlert(currentLang === 'AM' ? '⏳ ከሰርቨር ጋር እየተገናኘ ነው... (Connecting...)' : '⏳ Connecting to server...');
+                        if (typeof socket.connect === 'function') socket.connect();
+                    }
+                    return; 
+                }
+                
+                let isLiveMode = document.getElementById('timer').innerText.includes("LIVE") || document.getElementById('timer-status-text').innerText.includes("LIVE") || document.getElementById('timer-status-text').innerText.includes("በመካሄድ");
+                if(isLiveMode) return; 
+                
+                if(d.classList.contains('taken') && !d.classList.contains('bought-by-me')) return; 
+
+                if(d.classList.contains('bought-by-me')) {
+                    d.classList.remove('bought-by-me');
+                    
+                    if (currentUser) {
+                        currentUser.playBalance = (parseFloat(currentUser.playBalance) || 0) + cardTotalCost();
+                        updateUIBalance();
+                    }
+
+                    userTicketsData = userTicketsData.filter(t => t.id !== i);
+                    
+                    setTimeout(() => {
+                        renderConfirmedTickets();
+                        updateBetPreview();
+                        socket.emit('cancel_ticket', { phone: currentUser.phone, ticketId: i });
+                    }, 0);
+                } 
+                else { 
+                    if(userTicketsData.length >= maxTicketsLimit) { 
+                        alert(currentLang === 'AM' ? "በአጠቃላይ ከ " + maxTicketsLimit + " ካርቴላ በላይ መግዛት አይቻልም!" : "You cannot buy more than " + maxTicketsLimit + " tickets!"); 
+                        return;
+                    } 
+                    
+                    let currentPlayBal = parseFloat(currentUser.playBalance) || 0; 
+                    let currentMainBal = parseFloat(currentUser.mainBalance) || 0;
+                    let cardCost = cardTotalCost();
+                    if((currentPlayBal + currentMainBal) < cardCost) { 
+                        alert(currentLang === 'AM' ? "በሂሳብዎ ላይ በቂ ገንዘብ የሎትም!" : "Insufficient balance!"); 
+                        return; 
+                    }
+
+                    d.classList.add('bought-by-me');
+
+                    if (currentPlayBal >= cardCost) {
+                        currentUser.playBalance = currentPlayBal - cardCost;
+                    } else {
+                        let remainder = cardCost - currentPlayBal;
+                        currentUser.playBalance = 0;
+                        currentUser.mainBalance = currentMainBal - remainder;
+                    }
+                    updateUIBalance(); 
+                    
+                    let cols = generateFixedCard(i);
+                    let marksObj = [[0,0,0,0,0], [0,0,0,0,0], [0,0,1,0,0], [0,0,0,0,0], [0,0,0,0,0]]; 
+                    let singleTicket = [{ id: i, grid: cols, marksObj }];
+                    
+                    socket.emit('buy_tickets', { 
+                            name: currentUser.name, 
+                            phone: currentUser.phone, 
+                            ticketCount: 1, 
+                            ticketIds: [i], 
+                            ticketsData: singleTicket 
+                    });
+                } 
+            }; 
+            box.appendChild(d); 
+        } 
+        renderGridTakenStates();
+    }
+
+    function updateBetPreview() {
+        document.getElementById('grid-sel-count').innerText = userTicketsData.length;
+        const popup = document.getElementById('bet-slip-popup'); 
+        const previewBox = document.getElementById('ticket-preview-box');
+        previewBox.innerHTML = '';
+
+        if(userTicketsData.length > 0) {
+            if (document.getElementById('home-page').classList.contains('active-page')) {
+                popup.classList.add('show'); 
+            }
+            document.getElementById('slip-count').innerText = userTicketsData.length; 
+            document.getElementById('slip-price').innerText = userTicketsData.length * cardTotalCost();
+            userTicketsData.forEach(t => {
+                let card = document.createElement('div'); card.className = 'preview-t-card'; 
+                let html = `<div style="text-align:center; font-size:10px; font-weight:bold; color:#1e293b; padding:1px;">#${t.id}</div><div class="preview-t-grid">`;
+                for(let i=0; i<5; i++) { html += `<div class="preview-t-head">${bHeads[i]}</div>`; }
+                for(let r=0; r<5; r++) { for(let c=0; c<5; c++) { 
+                    if(r==2 && c==2) html += `<div class="preview-t-cell marked" style="color:var(--gold); font-size:12px;">★</div>`; 
+                    else html += `<div class="preview-t-cell">${t.grid[c][r]}</div>`; 
+                } }
+                card.innerHTML = html + "</div>"; previewBox.appendChild(card);
+            });
+        } else { 
+            popup.classList.remove('show'); 
+        }
+    }
+    
+    function renderConfirmedTickets() { 
+        const list = document.getElementById('ticket-list'); 
+        list.innerHTML = ''; 
+
+        userTicketsData.forEach(t => { 
+            let id = t.id; let cols = t.grid;
+            
+            let card = document.createElement('div'); card.className = 't-card'; 
+            
+            let htmlMain = `<div class="t-id-badge">#${id}</div><div class="t-grid">`;
+
+            for(let i=0; i<5; i++) { 
+                htmlMain += `<div class="t-cell" style="background:var(--gold-grad); color:black; border:none;">${bHeads[i]}</div>`; 
+            } 
+            for(let r=0; r<5; r++) { 
+                for(let c=0; c<5; c++) { 
+                    if(r==2 && c==2) { 
+                        htmlMain += `<div class="t-cell marked" style="font-size:18px;">★</div>`; 
+                    } else { 
+                        htmlMain += `<div class="t-cell t-v-${cols[c][r]}">${cols[c][r]}</div>`; 
+                    } 
+                } 
+            } 
+            htmlMain += "</div>"; 
+            card.innerHTML = htmlMain; 
+            list.appendChild(card); 
+        }); 
+        
+        let tInfo = document.getElementById('t-info');
+        if(tInfo) {
+            tInfo.innerText = currentLang === 'AM' ? "የገዙት ካርቴላ ብዛት: " + userTicketsData.length : "Purchased Tickets: " + userTicketsData.length;
+        }
+    }
+
+    function buildMasterBoard() {
+        const board = document.getElementById('master-board'); if(!board) return; board.innerHTML = '';
+        for(let c=0; c<5; c++) { let h = document.createElement('div'); h.className = 'mb-head'; h.style.background = 'var(--gold-grad)'; h.innerText = bHeads[c]; board.appendChild(h); }
+        for(let r=1; r<=15; r++) { for(let c=0; c<5; c++) { let num = r + (c * 15); let d = document.createElement('div'); d.className = 'mb-cell'; d.id = 'mb-' + num; d.innerText = num; d.style.color = 'var(--gold)'; board.appendChild(d); } }
+    }
+
+    function buildTicketMasterBoard() {
+        const tBoard = document.getElementById('ticket-master-board');
+        if(!tBoard) return;
+        tBoard.innerHTML = '';
+
+        for(let c=0; c<5; c++) { 
+            let h = document.createElement('div'); 
+            h.className = `mb-head`; 
+            h.innerText = bHeads[c]; 
+            tBoard.appendChild(h); 
+        }
+        for(let r=1; r<=15; r++) { 
+            for(let c=0; c<5; c++) { 
+                let num = r + (c * 15); 
+                let d = document.createElement('div'); 
+                d.className = `mb-cell`; 
+                d.id = 'tmb-' + num; 
+                d.innerText = num; 
+                tBoard.appendChild(d); 
+            } 
+        }
+    }
+
+    function updateLiveUI(num, isLatest) {
+        if(isLatest) document.querySelectorAll('.mb-cell').forEach(c => c.classList.remove('current'));
+        
+        let cell = document.getElementById('mb-' + num);
+        if(cell) { cell.classList.add('called'); if(isLatest) cell.classList.add('current'); }
+
+        let tCell = document.getElementById('tmb-' + num);
+        if(tCell) { tCell.classList.add('called'); if(isLatest) tCell.classList.add('current'); }
+
+        document.querySelectorAll('.t-v-' + num).forEach(c => c.classList.add('marked'));
+
+        let colIdx = num <= 15 ? 0 : num <= 30 ? 1 : num <= 45 ? 2 : num <= 60 ? 3 : 4;
+        let ballText = bHeads[colIdx] + "-" + num;
+        
+        if(isLatest) { let ticketCb = document.getElementById('ticket-caller-ball'); if(ticketCb) ticketCb.innerText = ballText; }
+
+        let tickH = document.getElementById('ticket-history-bar');
+        let tickDiv = document.createElement('div'); tickDiv.className = 'hist-top-ball'; tickDiv.innerText = ballText;
+        if(tickH) tickH.insertBefore(tickDiv, tickH.firstChild); 
+    }
+
+    function rn(min, max) { let a=[]; while(a.length<5){ let r=Math.floor(Math.random()*(max-min+1))+min; if(!a.includes(r)) a.push(r); } return a.sort((a,b)=>a-b); }
+function generateFixedCard(ticketId) {
+    let seed = (ticketId * 1234567) >>> 0;
+    function nextRand() {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        return seed / 4294967296;
+    }
+    nextRand(); nextRand(); nextRand();
+    function getCol(min, max) {
+        let arr = [];
+        while(arr.length < 5) {
+            let val = Math.floor(nextRand() * (max - min + 1)) + min;
+            if(!arr.includes(val)) arr.push(val);
+        }
+        return arr.sort((a,b)=>a-b);
+    }
+    let grid = [getCol(1, 15), getCol(16, 30), getCol(31, 45), getCol(46, 60), getCol(61, 75)];
+    grid[2][2] = "FREE";
+    return grid;
+}
+    function handleHomeNav(element) { 
+        if(isGameRunningLocally) showPage('ticket', document.getElementById('nav-item-ticket')); 
+        else showPage('home', element); 
+    }
+    
+    function showPage(id, element) { 
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active-page')); document.getElementById(id + '-page').classList.add('active-page'); document.getElementById('global-header').style.display = (id === 'auth' || id === 'game') ? 'none' : 'flex'; 
+
+        if(id === 'wallet') {
+            loadTransactionHistory();
+            if(!historyPollInterval) {
+                historyPollInterval = setInterval(loadTransactionHistory, 5000);
+            }
+        } else {
+            if(historyPollInterval) {
+                clearInterval(historyPollInterval);
+                historyPollInterval = null;
+            }
+        }
+        
+        if(id === 'home' && userTicketsData.length > 0) {
+            document.getElementById('bet-slip-popup').classList.add('show');
+        } else {
+            document.getElementById('bet-slip-popup').classList.remove('show');
+        }
+        
+        const navbar = document.getElementById('navbar');
+        if (id !== 'auth' && id !== 'game') {
+            if (id === 'ticket' && document.getElementById('ticket-page').classList.contains('show-mb') && userTicketsData.length >= 3) {
+                navbar.style.display = 'none';
+            } else {
+                navbar.style.display = 'flex';
+            }
+        }
+        
+        if(id === 'ticket') { let tla = document.getElementById('ticket-live-arrow'); if(tla) tla.style.display = 'none'; }
+
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active')); 
+        
+        let targetElement = element || document.getElementById('nav-' + id);
+        
+        if(targetElement) { 
+            targetElement.classList.add('active'); 
+        } else if (id === 'ticket') {
+            let nTicket = document.getElementById('nav-item-ticket');
+            if(nTicket && nTicket.style.display !== 'none') nTicket.classList.add('active');
+            else { let nHome = document.getElementById('nav-home'); if(nHome) nHome.classList.add('active'); }
+        }
+    }
+
+    function toggleTicketMasterBoard() {
+        const page = document.getElementById('ticket-page'); 
+        const arrow = document.getElementById('mb-toggle-arrow');
+        const navbar = document.getElementById('navbar');
+
+        page.classList.toggle('show-mb'); 
+        if(page.classList.contains('show-mb')) { 
+            arrow.innerText = '▲'; 
+            if(userTicketsData.length >= 3) {
+                navbar.style.display = 'none';
+            }
+        } else { 
+            arrow.innerText = '▼'; 
+            navbar.style.display = 'flex';
+        }
+    }
+</script>
+</body>
+</html>

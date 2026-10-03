@@ -17,6 +17,10 @@ const {
     validateWithdrawalLimits,
     detectFraudPatterns
 } = require('./lib/platformRules');
+
+const getNetJackpot = (typeof calculateNetJackpot === 'function')
+    ? calculateNetJackpot
+    : function(tot, cut = 20) { return Math.round((Number(tot) || 0) * (1 - (Number(cut) || 0) / 100) * 100) / 100; };
 const botRoutes = require('./bot.routes');
 
 const app = express();
@@ -27,7 +31,7 @@ const io = new Server(server, {
     pingTimeout: 5000
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
 const WEB_URL = process.env.WEB_URL || process.env.APP_URL || 'http://localhost:3000';
@@ -52,12 +56,12 @@ function validateStartupConfig() {
     ];
 
     const missing = required
-        .filter(item => !item.value || (typeof item.value === 'string' && item.value.trim() === ''))
+        .filter(item => !item.value || (typeof item.value === 'string' && (item.value.trim() === '' || /<[^>]+>/.test(item.value))))
         .map(item => item.name);
 
     if (missing.length > 0) {
         console.warn('════════════════════════════════════════════════════');
-        console.warn('⚠️  CONFIG WARNING: Missing required environment variables:');
+        console.warn('⚠️  CONFIG WARNING: Missing or placeholder environment variables:');
         missing.forEach(name => console.warn(`   - ${name}`));
         console.warn('Please supply these in your hosting environment.');
         console.warn('Never hard-code secrets or credentials into the repository.');
@@ -68,14 +72,36 @@ function validateStartupConfig() {
 }
 validateStartupConfig();
 
-// Connect MongoDB if URI provided
-if (MONGO_URI) {
+// Connect MongoDB if valid non-placeholder URI provided
+const isMongoUriConfigured = MONGO_URI && 
+    !MONGO_URI.includes('<db_password>') && 
+    !MONGO_URI.includes('<password>') && 
+    !MONGO_URI.includes('<DB_PASSWORD>') &&
+    !/<[^>]+>/.test(MONGO_URI);
+
+if (isMongoUriConfigured) {
+    mongoose.connection.on('error', (err) => {
+        console.warn('[MongoDB] Connection event notice:', err && err.message ? err.message : err);
+    });
+
     mongoose.connect(MONGO_URI, {
         useNewUrlParser: true,
-        useUnifiedTopology: true
-    }).then(() => console.log('MongoDB Connected successfully')).catch(err => console.error('MongoDB connection error:', err.message));
+        useUnifiedTopology: true,
+        serverSelectionTimeoutMS: 5000
+    }).then(() => {
+        console.log('MongoDB Connected successfully');
+    }).catch(err => {
+        console.warn('[MongoDB] Connection failed (' + (err && err.message ? err.message : err) + '). Operating in resilient in-memory mode.');
+        try {
+            mongoose.disconnect().catch(() => {});
+        } catch (_) {}
+    });
 } else {
-    console.warn('[MongoDB] MONGO_URI not provided. Running in memory / offline DB mode.');
+    if (MONGO_URI) {
+        console.warn('[MongoDB] MONGO_URI contains an unreplaced credential placeholder (e.g. <db_password>). Running in resilient in-memory mode.');
+    } else {
+        console.warn('[MongoDB] MONGO_URI not provided. Running in resilient in-memory mode.');
+    }
 }
 
 // Enable CORS for external frontends / webviews connecting to Phoenix Bingo Render backend
@@ -1149,17 +1175,39 @@ app.get('/api/getUser/:phone', async (req, res) => {
 // ══════════════════════════════════════════════════
 let currentGame = {
     gameId: 1001,
-    state: 'WAITING', // WAITING, COUNTDOWN, PLAYING, ENDED
+    state: 'WAITING', // WAITING, PLAYING, ENDED
     stake: 10,
     drawnNumbers: [],
     remainingNumbers: Array.from({ length: 75 }, (_, i) => i + 1),
-    players: new Map(), // socketId -> { telegramId, name, tickets: [] }
+    players: new Map(), // socketId -> { telegramId, phone, name, tickets: [] }
     selectedCards: new Map(), // cardId -> socketId
-    timer: 15,
+    timer: 40,
     drawInterval: null,
     totalJackpot: 0,
     netJackpot: 0
 };
+
+function getGameStatusPayload() {
+    return {
+        gameId: currentGame.gameId,
+        state: currentGame.state,
+        timer: currentGame.timer,
+        ticketPrice: currentGame.stake || 10,
+        totalPrizePool: currentGame.totalJackpot || 0,
+        jackpotBoost: 0,
+        calledNumbers: currentGame.drawnNumbers || [],
+        playersCount: currentGame.players.size,
+        maxTickets: 50,
+        bankInfo: {
+            tbNum: SUPPORT_PHONE_NUMBER,
+            tbName: 'Phoenix Bingo',
+            cbeNum: '1000...',
+            cbeName: 'Phoenix Bingo',
+            mpesaNum: '0700000000',
+            mpesaName: 'Phoenix Bingo'
+        }
+    };
+}
 
 function shuffle(array) {
     for (let i = array.length - 1; i > 0; i--) {
@@ -1169,20 +1217,33 @@ function shuffle(array) {
     return array;
 }
 
+let countdownInterval = null;
+
 function startCountdown() {
-    currentGame.state = 'COUNTDOWN';
-    currentGame.timer = 10;
+    if (countdownInterval) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+    }
+    currentGame.state = 'WAITING';
+    currentGame.timer = 40;
+    io.emit('game_status', getGameStatusPayload());
     io.emit('gameState', { state: currentGame.state, timer: currentGame.timer });
 
-    const cdInterval = setInterval(() => {
+    countdownInterval = setInterval(() => {
         currentGame.timer--;
+        io.emit('game_status', getGameStatusPayload());
         io.emit('countdown', currentGame.timer);
 
         if (currentGame.timer <= 0) {
-            clearInterval(cdInterval);
+            clearInterval(countdownInterval);
+            countdownInterval = null;
             startGamePlay();
         }
     }, 1000);
+
+    if (typeof countdownInterval.unref === 'function') {
+        countdownInterval.unref();
+    }
 }
 
 function startGamePlay() {
@@ -1193,13 +1254,19 @@ function startGamePlay() {
     // Calculate Jackpots
     const totalPlayers = currentGame.players.size;
     currentGame.totalJackpot = totalPlayers * currentGame.stake;
-    currentGame.netJackpot = calculateNetJackpot(currentGame.totalJackpot, 20);
+    currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
 
+    io.emit('game_status', getGameStatusPayload());
     io.emit('gameStarted', {
         gameId: currentGame.gameId,
         totalJackpot: currentGame.totalJackpot,
         netJackpot: currentGame.netJackpot
     });
+
+    if (currentGame.drawInterval) {
+        clearInterval(currentGame.drawInterval);
+        currentGame.drawInterval = null;
+    }
 
     currentGame.drawInterval = setInterval(() => {
         if (currentGame.remainingNumbers.length === 0 || currentGame.state !== 'PLAYING') {
@@ -1209,15 +1276,28 @@ function startGamePlay() {
 
         const drawn = currentGame.remainingNumbers.pop();
         currentGame.drawnNumbers.push(drawn);
+        io.emit('new_number', drawn);
         io.emit('numberDrawn', { number: drawn, history: currentGame.drawnNumbers });
 
     }, 3000);
+
+    if (typeof currentGame.drawInterval.unref === 'function') {
+        currentGame.drawInterval.unref();
+    }
 }
 
 function endGame(winners) {
-    if (currentGame.drawInterval) clearInterval(currentGame.drawInterval);
+    if (currentGame.drawInterval) {
+        clearInterval(currentGame.drawInterval);
+        currentGame.drawInterval = null;
+    }
     currentGame.state = 'ENDED';
     io.emit('gameOver', { winners, gameId: currentGame.gameId });
+    io.emit('game_winner', {
+        phone: (winners && winners[0]) || '',
+        isShared: winners && winners.length > 1,
+        winnerCount: winners ? winners.length : 0
+    });
 
     setTimeout(() => {
         resetGame();
@@ -1231,9 +1311,11 @@ function resetGame() {
     currentGame.remainingNumbers = Array.from({ length: 75 }, (_, i) => i + 1);
     currentGame.selectedCards.clear();
     io.emit('gameState', { state: currentGame.state, gameId: currentGame.gameId });
+    startCountdown();
 }
 
 io.on('connection', (socket) => {
+    socket.emit('game_status', getGameStatusPayload());
     socket.emit('init', {
         state: currentGame.state,
         gameId: currentGame.gameId,
@@ -1241,7 +1323,19 @@ io.on('connection', (socket) => {
         history: currentGame.drawnNumbers
     });
 
+    socket.on('get_initial_data', (phone) => {
+        socket.emit('game_status', getGameStatusPayload());
+        const playerRecord = currentGame.players.get(socket.id);
+        const myTickets = (playerRecord && playerRecord.tickets) || [];
+        socket.emit('sync_data', {
+            globalTakenTickets: Array.from(currentGame.selectedCards.keys()),
+            calledNumbers: currentGame.drawnNumbers || [],
+            myTickets
+        });
+    });
+
     socket.on('joinGame', (data) => {
+        if (!data) return;
         currentGame.players.set(socket.id, {
             telegramId: data.telegramId,
             name: data.name || 'Player',
@@ -1250,10 +1344,50 @@ io.on('connection', (socket) => {
         io.emit('playerCount', currentGame.players.size);
     });
 
+    socket.on('buy_tickets', (data) => {
+        if (!data) return;
+        const { name, phone, ticketIds, ticketsData } = data;
+        if (currentGame.state !== 'WAITING') {
+            socket.emit('bet_error', 'ጨዋታው ተጀምሯል! እባክዎ ቀጣይ ዙር ይጠብቁ (Round already started)');
+            return;
+        }
+        if (Array.isArray(ticketIds)) {
+            ticketIds.forEach(tid => {
+                currentGame.selectedCards.set(tid, socket.id);
+            });
+        }
+        const playerRecord = currentGame.players.get(socket.id) || {
+            telegramId: phone,
+            phone: phone,
+            name: name || 'Player',
+            tickets: []
+        };
+        if (Array.isArray(ticketsData)) {
+            playerRecord.tickets.push(...ticketsData);
+        }
+        currentGame.players.set(socket.id, playerRecord);
+        io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
+        io.emit('playerCount', currentGame.players.size);
+    });
+
+    socket.on('cancel_ticket', (data) => {
+        if (!data || currentGame.state !== 'WAITING') return;
+        const { ticketId } = data;
+        if (currentGame.selectedCards.has(ticketId)) {
+            currentGame.selectedCards.delete(ticketId);
+            const playerRecord = currentGame.players.get(socket.id);
+            if (playerRecord && Array.isArray(playerRecord.tickets)) {
+                playerRecord.tickets = playerRecord.tickets.filter(t => t.id !== ticketId);
+            }
+            socket.emit('ticket_cancelled_success', ticketId);
+            io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
+        }
+    });
+
     socket.on('claimBingo', (data) => {
         if (currentGame.state !== 'PLAYING') return;
         // Verify bingo winner
-        endGame([data.name || 'Player']);
+        endGame([data && data.name ? data.name : 'Player']);
     });
 
     socket.on('disconnect', () => {
@@ -1261,6 +1395,12 @@ io.on('connection', (socket) => {
         io.emit('playerCount', currentGame.players.size);
     });
 });
+
+// Single active game countdown loop on startup
+if (!global.__phoenixGameLoopStarted) {
+    global.__phoenixGameLoopStarted = true;
+    startCountdown();
+}
 
 if (require.main === module) {
     server.listen(PORT, () => {
