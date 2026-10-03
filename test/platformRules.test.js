@@ -279,6 +279,8 @@ function testPurchaseOrder() {
     });
 }
 
+const { runTelegramSecurityTests } = require('./telegramAuth.test');
+
 Promise.resolve()
     .then(() => {
         testReferralCap();
@@ -291,6 +293,11 @@ Promise.resolve()
     })
     .then(() => {
         console.log('platformRules tests passed');
+        return runTelegramSecurityTests();
+    })
+    .then(() => {
+        console.log('All test suites passed successfully');
+        process.exit(0);
     })
     .catch((err) => {
         console.error(err);

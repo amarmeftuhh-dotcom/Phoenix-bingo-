@@ -990,10 +990,14 @@
     }
 
     async function checkTgAuthStatus() {
-        if(!window.Telegram || !window.Telegram.WebApp.initDataUnsafe.user) return;
-        const tgId = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
+        const initData = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp.initData : null;
+        if (!initData) return;
         try {
-            let res = await fetch('/api/telegram-login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ telegramId: tgId }) });
+            let res = await fetch('/api/telegram-login', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify({ initData: initData }) 
+            });
             let data = await res.json();
             if(data.success && data.user.phone) {
                 clearInterval(tgCheckInterval);
@@ -1012,15 +1016,18 @@
     window.onload = async () => {
         buildMasterBoard(); buildTicketMasterBoard(); initGrid();
         
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-            const tgUser = window.Telegram.WebApp.initDataUnsafe.user;
-            const tgId = tgUser.id.toString();
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData && window.Telegram.WebApp.initData.trim() !== '') {
+            const initData = window.Telegram.WebApp.initData;
             
             document.getElementById('manual-login-form').style.display = 'none';
             document.getElementById('telegram-auth-loading').style.display = 'flex';
 
             try {
-                let res = await fetch('/api/telegram-login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ telegramId: tgId }) });
+                let res = await fetch('/api/telegram-login', { 
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({ initData: initData }) 
+                });
                 let data = await res.json();
                 if (data.success) {
                     processLoginSuccess(data.user);

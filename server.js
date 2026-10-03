@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const crypto = require('crypto');
 const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const path = require('path');
@@ -26,7 +27,7 @@ const io = new Server(server, {
     pingTimeout: 5000
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 const MONGO_URI = process.env.MONGO_URI;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
 const WEB_URL = process.env.WEB_URL || process.env.APP_URL || 'http://localhost:3000';
@@ -206,6 +207,258 @@ const Transaction = mongoose.models.Transaction || mongoose.model('Transaction',
 const Settings = mongoose.models.Settings || mongoose.model('Settings', SettingsSchema);
 const Promo = mongoose.models.Promo || mongoose.model('Promo', PromoSchema);
 
+// ══════════════════════════════════════════════════
+// USER NORMALIZATION & HELPER FUNCTIONS
+// ══════════════════════════════════════════════════
+const inMemoryUsers = new Map();
+const pendingReferrals = new Map();
+
+function normalizePhoneNumber(raw) {
+    if (!raw) return '';
+    let cleaned = String(raw).trim().replace(/\D/g, '');
+    if (cleaned.startsWith('251')) {
+        cleaned = '0' + cleaned.slice(3);
+    } else if (cleaned.length === 9 && (cleaned.startsWith('9') || cleaned.startsWith('7'))) {
+        cleaned = '0' + cleaned;
+    }
+    return cleaned;
+}
+
+function formatUserResponse(u) {
+    const raw = (u && typeof u.toObject === 'function') ? u.toObject() : (u || {});
+    const mainBal = raw.mainBalance ?? raw.balance ?? 0;
+    const playBal = raw.playBalance ?? raw.bonusBalance ?? raw.bonus ?? 0;
+    return {
+        phone: raw.phone || raw.userId || '',
+        name: raw.name || 'Player',
+        password: raw.password || '',
+        balance: mainBal,
+        bonusBalance: playBal,
+        mainBalance: mainBal,
+        playBalance: playBal,
+        registrationBonusClaimed: !!raw.registrationBonusClaimed,
+        role: raw.role || 'player',
+        refCode: raw.referralCode || raw.refCode || raw.phone || '',
+        referralCode: raw.referralCode || raw.refCode || '',
+        referredBy: raw.referredBy || '',
+        played: raw.played ?? 0,
+        won: raw.won ?? raw.totalWon ?? 0
+    };
+}
+
+function verifyTelegramWebAppData(initData, botToken = TELEGRAM_BOT_TOKEN, maxAgeSeconds = 86400) {
+    if (!initData || typeof initData !== 'string' || !initData.trim()) {
+        return { valid: false, error: 'Missing or empty initData' };
+    }
+    if (!botToken || typeof botToken !== 'string' || !botToken.trim()) {
+        return { valid: false, error: 'Missing or invalid bot token' };
+    }
+
+    try {
+        const searchParams = new URLSearchParams(initData.trim());
+        const receivedHash = searchParams.get('hash');
+        if (!receivedHash) {
+            return { valid: false, error: 'Missing hash parameter in initData' };
+        }
+
+        // Delete hash from parameters before building data_check_string
+        searchParams.delete('hash');
+
+        // Sort keys alphabetically in ascending order
+        const keys = Array.from(searchParams.keys()).sort();
+        const dataCheckPairs = [];
+        for (const key of keys) {
+            dataCheckPairs.push(`${key}=${searchParams.get(key)}`);
+        }
+        const dataCheckString = dataCheckPairs.join('\n');
+
+        // HMAC-SHA-256 signature of the bot token with string "WebAppData" as key
+        const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
+        const calculatedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+
+        const receivedBuf = Buffer.from(receivedHash, 'hex');
+        const calculatedBuf = Buffer.from(calculatedHash, 'hex');
+
+        if (receivedBuf.length !== calculatedBuf.length || !crypto.timingSafeEqual(receivedBuf, calculatedBuf)) {
+            return { valid: false, error: 'Invalid hash signature' };
+        }
+
+        // Expiration check on auth_date
+        const authDateRaw = searchParams.get('auth_date');
+        if (!authDateRaw) {
+            return { valid: false, error: 'Missing auth_date in initData' };
+        }
+        const authDate = parseInt(authDateRaw, 10);
+        if (isNaN(authDate)) {
+            return { valid: false, error: 'Invalid auth_date format' };
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        if (authDate > now + 300) {
+            return { valid: false, error: 'auth_date cannot be in the future' };
+        }
+        if (maxAgeSeconds > 0 && (now - authDate) > maxAgeSeconds) {
+            return { valid: false, error: 'initData has expired' };
+        }
+
+        // Parse user data
+        const userRaw = searchParams.get('user');
+        if (!userRaw) {
+            return { valid: false, error: 'Missing user object in initData' };
+        }
+
+        let telegramUser;
+        try {
+            telegramUser = JSON.parse(userRaw);
+        } catch (e) {
+            return { valid: false, error: 'Failed to parse user JSON in initData' };
+        }
+
+        if (!telegramUser || (telegramUser.id === undefined || telegramUser.id === null)) {
+            return { valid: false, error: 'Missing user id in Telegram user object' };
+        }
+
+        return {
+            valid: true,
+            telegramUser,
+            authDate
+        };
+    } catch (err) {
+        return { valid: false, error: 'Failed to parse initData: ' + err.message };
+    }
+}
+
+async function findUserByTgOrPhone(telegramId, phone) {
+    const tgStr = telegramId ? String(telegramId).trim() : null;
+    const normalized = phone ? normalizePhoneNumber(phone) : null;
+    const phoneVariants = [];
+    if (normalized) phoneVariants.push(normalized);
+    if (phone && phone !== normalized) phoneVariants.push(phone);
+    if (normalized && normalized.startsWith('0')) {
+        phoneVariants.push('+251' + normalized.slice(1));
+        phoneVariants.push('251' + normalized.slice(1));
+    }
+
+    if (mongoose.connection.readyState === 1) {
+        const orClauses = [];
+        if (tgStr) {
+            orClauses.push({ telegramId: tgStr });
+            orClauses.push({ userId: tgStr });
+        }
+        if (phoneVariants.length > 0) {
+            orClauses.push({ phone: { $in: phoneVariants } });
+            orClauses.push({ userId: { $in: phoneVariants } });
+        }
+        if (orClauses.length === 0) return null;
+        return await User.findOne({ $or: orClauses });
+    } else {
+        if (tgStr && inMemoryUsers.has(tgStr)) return inMemoryUsers.get(tgStr);
+        if (normalized && inMemoryUsers.has(normalized)) return inMemoryUsers.get(normalized);
+        if (phone && inMemoryUsers.has(phone)) return inMemoryUsers.get(phone);
+        for (const u of inMemoryUsers.values()) {
+            if (tgStr && (String(u.telegramId) === tgStr || String(u.userId) === tgStr)) return u;
+            if (normalized && (u.phone === normalized || u.phone === phone)) return u;
+        }
+        return null;
+    }
+}
+
+const activeRegistrations = new Map();
+
+async function registerTelegramUser({ telegramId, phone, name, username, refCode }) {
+    const tgStr = String(telegramId).trim();
+    const rawPhone = String(phone || '').trim();
+    const normalized = normalizePhoneNumber(rawPhone);
+
+    const tgKey = 'tg_' + tgStr;
+    const phoneKey = normalized ? 'phone_' + normalized : null;
+
+    const inFlight = activeRegistrations.get(tgKey) || (phoneKey ? activeRegistrations.get(phoneKey) : null);
+    if (inFlight) {
+        await inFlight;
+        const existing = await findUserByTgOrPhone(tgStr, normalized);
+        if (existing) {
+            return { isNew: false, user: existing };
+        }
+    }
+
+    let resolveLock;
+    const lockPromise = new Promise(r => resolveLock = r);
+    activeRegistrations.set(tgKey, lockPromise);
+    if (phoneKey) activeRegistrations.set(phoneKey, lockPromise);
+
+    try {
+        // 1. Search MongoDB for existing player
+        let existingUser = await findUserByTgOrPhone(tgStr, normalized);
+        if (existingUser) {
+            // Player already exists:
+            // Do NOT create another account.
+            // Do NOT give another 15 ETB.
+            // Preserve all existing balances and account data.
+            if (!existingUser.telegramId || existingUser.telegramId.startsWith('web_')) {
+                existingUser.telegramId = tgStr;
+                existingUser.userId = existingUser.userId || tgStr;
+                if (typeof existingUser.save === 'function') {
+                    await existingUser.save().catch(() => {});
+                }
+            }
+            inMemoryUsers.set(tgStr, existingUser);
+            if (existingUser.phone) inMemoryUsers.set(existingUser.phone, existingUser);
+            return { isNew: false, user: existingUser };
+        }
+
+        // 2. Genuinely new player: create account and grant exactly 15 ETB play/bonus balance
+        const referralCode = 'P' + Math.floor(100000 + Math.random() * 900000);
+        const userData = {
+            userId: tgStr,
+            telegramId: tgStr,
+            phone: normalized,
+            name: name || 'Player',
+            username: username || '',
+            referredBy: (refCode || '').trim(),
+            referralCode,
+            balance: 0,
+            mainBalance: 0,
+            playBalance: 15,
+            bonusBalance: 15,
+            bonus: 15,
+            registrationBonusClaimed: true,
+            role: 'player',
+            played: 0,
+            won: 0,
+            totalWon: 0,
+            registeredAt: new Date(),
+            lastActive: new Date()
+        };
+
+        let savedUser = userData;
+        if (mongoose.connection.readyState === 1) {
+            try {
+                const newUser = new User(userData);
+                await newUser.save();
+                savedUser = newUser;
+            } catch (saveErr) {
+                if (saveErr.code === 11000) {
+                    // Concurrent race condition protected by MongoDB unique index!
+                    const concurrentUser = await findUserByTgOrPhone(tgStr, normalized);
+                    if (concurrentUser) {
+                        return { isNew: false, user: concurrentUser };
+                    }
+                }
+                throw saveErr;
+            }
+        }
+
+        inMemoryUsers.set(tgStr, savedUser);
+        if (normalized) inMemoryUsers.set(normalized, savedUser);
+        return { isNew: true, user: savedUser };
+    } finally {
+        activeRegistrations.delete(tgKey);
+        if (phoneKey) activeRegistrations.delete(phoneKey);
+        if (resolveLock) resolveLock();
+    }
+}
+
 
 // ══════════════════════════════════════════════════
 // TELEGRAM BOT INITIALIZATION & BRANDED MESSAGES
@@ -284,35 +537,159 @@ if (TELEGRAM_BOT_TOKEN) {
         });
     }
 
+    async function handleTelegramContact(msg) {
+        if (!msg || !msg.contact) return;
+        const chatId = msg.chat.id;
+        const tgStr = String(msg.from.id);
+        const rawPhone = msg.contact.phone_number;
+        const firstName = msg.from.first_name || msg.contact.first_name || 'ተጫዋች';
+        const username = msg.from.username || '';
+        const refCode = pendingReferrals.get(tgStr) || '';
+        pendingReferrals.delete(tgStr);
+
+        try {
+            const result = await registerTelegramUser({
+                telegramId: tgStr,
+                phone: rawPhone,
+                name: firstName,
+                username,
+                refCode
+            });
+
+            const user = result.user;
+            const mainBal = (user.mainBalance ?? user.balance ?? 0).toFixed(2);
+            const playBal = (user.playBalance ?? user.bonusBalance ?? user.bonus ?? 0).toFixed(2);
+
+            // Step 1: Remove custom contact request keyboard
+            await bot.sendMessage(chatId, result.isNew 
+                ? "✅ ስልክ ቁጥርዎ በተሳካ ሁኔታ ተመዝግቧል! (Registration Successful)"
+                : "✅ አካውንትዎ ተረጋግጧል! (Account Verified)", 
+                { reply_markup: { remove_keyboard: true } }
+            ).catch(() => {});
+
+            // Step 2: Send game menu with WebApp URL
+            const text = result.isNew ? (
+                `🎉 **እንኳን ደስ አሎት! ምዝገባዎ ተሳክቷል!** 🎉\n\n` +
+                `ሰላም ${firstName}፣ የ **15 ብር የመጀመሪያ ምዝገባ ቦነስ (15 ETB Play Bonus)** በነፃ ወደ አካውንትዎ ገቢ ተደርጓል!\n\n` +
+                `📱 **ስልክ ቁጥር:** \`${user.phone}\`\n` +
+                `🎁 **መጫወቻ ቦነስ (Play Bal):** ${playBal} ETB\n` +
+                `💰 **ዋና ሂሳብ (Main Bal):** ${mainBal} ETB\n\n` +
+                `አሁኑኑ ጨዋታውን ለመጀመር ከስር ያለውን **Play Phoenix Bingo** ቁልፍ ይጫኑ! 👇`
+            ) : (
+                `🔥 **እንኳን ወደ Phoenix Bingo በደህና መጡ!** 🔥\n\n` +
+                `ሰላም ${user.name || firstName}!\n\n` +
+                `📱 **ስልክ ቁጥር:** \`${user.phone}\`\n` +
+                `💰 **ዋና ሂሳብ (Main Bal):** ${mainBal} ETB\n` +
+                `🎁 **መጫወቻ ቦነስ (Play Bal):** ${playBal} ETB\n\n` +
+                `ለመጫወት ከታች ያለውን **Play Phoenix Bingo** ቁልፍ ይጫኑ! 👇`
+            );
+
+            const keyboard = {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            { text: "🎮 Play Phoenix Bingo", web_app: { url: WEBAPP_URL } }
+                        ],
+                        [
+                            { text: "👥 የጓደኛ መጋበዣ", callback_data: "referral_info" },
+                            { text: "📞 Support / እገዛ", url: `https://t.me/${PHOENIX_SUPPORT_USERNAME}` }
+                        ]
+                    ]
+                }
+            };
+
+            return await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', ...keyboard }).catch((err) => {
+                console.warn('[Telegram Bot] Send menu message failed:', err && err.message);
+            });
+        } catch (err) {
+            console.error('[Telegram Registration] Error processing contact:', err);
+            return await bot.sendMessage(chatId, "❌ በምዝገባ ወቅት ስህተት አጋጥሟል። እባክዎ እንደገና ይሞክሩ።").catch(() => {});
+        }
+    }
+
     bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
         const chatId = msg.chat.id;
+        const tgStr = String(msg.from.id);
         const refCode = match ? match[1] : null;
         const firstName = msg.from.first_name || 'ተጫዋች';
         const username = msg.from.username || '';
 
-        const welcomeText = `🔥 **እንኳን ወደ Phoenix Bingo በደህና መጡ!** 🔥\n\n` +
-            `ሰላም ${firstName}፣ የኢትዮጵያ ምርጡን የቀጥታ የቢንጎ ጨዋታ ከእኛ ጋር ይጫወቱና ያሸንፉ!\n\n` +
-            `🎮 **የጨዋታው ህጎችና ጥቅሞች:**\n` +
-            `• ፈጣን የቴሌብር እና ሲቢኢ ክፍያዎች\n` +
-            `• ትልቅ የቀጥታ ጃክፖት ሽልማት\n` +
-            `• ጓደኞችን ሲጋብዙ የኮሚሽን ቦነስ\n\n` +
-            `እባክዎ ጨዋታውን ለመጀመር ከስር ያለውን **Play Phoenix Bingo** ቁልፍ ይጫኑ! 👇`;
+        if (refCode) {
+            pendingReferrals.set(tgStr, refCode);
+        }
 
-        const keyboard = {
-            reply_markup: {
-                inline_keyboard: [
-                    [
-                        { text: "🎮 Play Phoenix Bingo", web_app: { url: WEBAPP_URL } }
-                    ],
-                    [
-                        { text: "👥 የጓደኛ መጋበዣ", callback_data: "referral_info" },
-                        { text: "📞 Support / እገዛ", url: `https://t.me/${PHOENIX_SUPPORT_USERNAME}` }
+        // Check if player already exists
+        const existingUser = await findUserByTgOrPhone(tgStr, null);
+        if (existingUser && existingUser.phone) {
+            const mainBal = (existingUser.mainBalance ?? existingUser.balance ?? 0).toFixed(2);
+            const playBal = (existingUser.playBalance ?? existingUser.bonusBalance ?? existingUser.bonus ?? 0).toFixed(2);
+
+            const welcomeBackText = `🔥 **እንኳን ወደ Phoenix Bingo በደህና ተመለሱ!** 🔥\n\n` +
+                `ሰላም ${existingUser.name || firstName}!\n\n` +
+                `📱 **ስልክ ቁጥር:** \`${existingUser.phone}\`\n` +
+                `💰 **ዋና ሂሳብ (Main Bal):** ${mainBal} ETB\n` +
+                `🎁 **መጫወቻ ቦነስ (Play Bal):** ${playBal} ETB\n\n` +
+                `🎮 **የጨዋታው ህጎችና ጥቅሞች:**\n` +
+                `• ፈጣን የቴሌብር እና ሲቢኢ ክፍያዎች\n` +
+                `• ትልቅ የቀጥታ ጃክፖት ሽልማት\n` +
+                `• ጓደኞችን ሲጋብዙ የኮሚሽን ቦነስ\n\n` +
+                `እባክዎ ጨዋታውን ለመጀመር ከስር ያለውን **Play Phoenix Bingo** ቁልፍ ይጫኑ! 👇`;
+
+            const keyboard = {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            { text: "🎮 Play Phoenix Bingo", web_app: { url: WEBAPP_URL } }
+                        ],
+                        [
+                            { text: "👥 የጓደኛ መጋበዣ", callback_data: "referral_info" },
+                            { text: "📞 Support / እገዛ", url: `https://t.me/${PHOENIX_SUPPORT_USERNAME}` }
+                        ]
                     ]
-                ]
+                }
+            };
+
+            return await bot.sendMessage(chatId, welcomeBackText, { parse_mode: 'Markdown', ...keyboard }).catch((err) => {
+                console.warn('[Telegram Bot] Send welcome back failed:', err && err.message);
+            });
+        }
+
+        // New or unregistered player: Show clear Share Phone Number button
+        const registerPrompt = `🔥 **እንኳን ወደ Phoenix Bingo በደህና መጡ!** 🔥\n\n` +
+            `ሰላም ${firstName}፣ የኢትዮጵያ ምርጡን የቀጥታ የቢንጎ ጨዋታ ከእኛ ጋር ይጫወቱና ያሸንፉ!\n\n` +
+            `🎁 **የመጀመሪያ ምዝገባ ስጦታ:**\n` +
+            `አሁኑኑ ስልክ ቁጥርዎን በማጋራት የ **15 ብር የመጫወቻ ቦነስ (15 ETB Play Bonus)** በነፃ ያግኙ!\n\n` +
+            `ለመመዝገብ ከታች ያለውን **«📱 ስልክ ቁጥር ያጋሩ (Share Phone Number)»** የሚለውን ቁልፍ ይጫኑ! 👇`;
+
+        const shareContactKeyboard = {
+            reply_markup: {
+                keyboard: [
+                    [
+                        { text: "📱 ስልክ ቁጥር ያጋሩ (Share Phone Number)", request_contact: true }
+                    ]
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: true
             }
         };
 
-        bot.sendMessage(chatId, welcomeText, { parse_mode: 'Markdown', ...keyboard });
+        bot.sendMessage(chatId, registerPrompt, { parse_mode: 'Markdown', ...shareContactKeyboard }).catch((err) => {
+            console.warn('[Telegram Bot] Send register prompt failed:', err && err.message);
+        });
+    });
+
+    bot.on('contact', async (msg) => {
+        if (msg._contactHandled) return;
+        msg._contactHandled = true;
+        await handleTelegramContact(msg);
+    });
+
+    bot.on('message', async (msg) => {
+        if (msg && msg.contact) {
+            if (msg._contactHandled) return;
+            msg._contactHandled = true;
+            await handleTelegramContact(msg);
+        }
     });
 
     bot.on('callback_query', async (query) => {
@@ -526,31 +903,6 @@ app.post('/api/finance/verify', (req, res) => {
     return res.status(401).json({ error: 'Invalid finance credentials' });
 });
 
-// In-memory store fallback when MongoDB is running in offline/memory mode
-const inMemoryUsers = new Map();
-
-function formatUserResponse(u) {
-    const raw = (u && typeof u.toObject === 'function') ? u.toObject() : (u || {});
-    const mainBal = raw.mainBalance ?? raw.balance ?? 0;
-    const playBal = raw.playBalance ?? raw.bonusBalance ?? raw.bonus ?? 0;
-    return {
-        phone: raw.phone || raw.userId || '',
-        name: raw.name || 'Player',
-        password: raw.password || '',
-        balance: mainBal,
-        bonusBalance: playBal,
-        mainBalance: mainBal,
-        playBalance: playBal,
-        registrationBonusClaimed: !!raw.registrationBonusClaimed,
-        role: raw.role || 'player',
-        refCode: raw.referralCode || raw.refCode || raw.phone || '',
-        referralCode: raw.referralCode || raw.refCode || '',
-        referredBy: raw.referredBy || '',
-        played: raw.played ?? 0,
-        won: raw.won ?? raw.totalWon ?? 0
-    };
-}
-
 // User Info Endpoint
 app.post('/api/user/info', async (req, res) => {
     try {
@@ -648,6 +1000,63 @@ app.post('/api/register', async (req, res) => {
             return res.status(400).json({ success: false, message: 'ይህ ስልክ ቁጥር ቀደም ሲል ተመዝግቧል! እባክዎ ይግቡ (Phone number already registered. Please login.)' });
         }
         return res.status(500).json({ success: false, message: err.message || 'Registration failed' });
+    }
+});
+
+// Telegram WebApp Login Endpoint (HMAC-SHA256 initData Verification)
+app.post('/api/telegram-login', async (req, res) => {
+    try {
+        const { initData } = req.body || {};
+        if (!initData || typeof initData !== 'string' || !initData.trim()) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Missing Telegram initData. Raw telegramId authentication is not accepted.' 
+            });
+        }
+
+        if (!TELEGRAM_BOT_TOKEN) {
+            console.error('[Telegram Auth] TELEGRAM_BOT_TOKEN is not configured on the server.');
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Telegram authentication is currently unavailable (bot token not configured).' 
+            });
+        }
+
+        const verification = verifyTelegramWebAppData(initData.trim(), TELEGRAM_BOT_TOKEN);
+        if (!verification.valid) {
+            return res.status(401).json({ 
+                success: false, 
+                message: `Telegram authentication failed: ${verification.error}` 
+            });
+        }
+
+        // Extracted ONLY from the cryptographically verified Telegram user object
+        const verifiedTgId = String(verification.telegramUser.id).trim();
+        const user = await findUserByTgOrPhone(verifiedTgId, null);
+
+        if (!user || !user.phone) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User not registered. Please start the bot in Telegram and share your phone number.' 
+            });
+        }
+
+        if (user.isBlocked) {
+            return res.status(403).json({ success: false, message: 'Account is blocked' });
+        }
+
+        user.lastActive = new Date();
+        if (typeof user.save === 'function') {
+            await user.save().catch(() => {});
+        }
+
+        return res.json({
+            success: true,
+            user: formatUserResponse(user)
+        });
+    } catch (err) {
+        console.error('Telegram login error:', err);
+        return res.status(500).json({ success: false, message: err.message || 'Telegram login failed' });
     }
 });
 
@@ -859,4 +1268,12 @@ if (require.main === module) {
     });
 }
 
-module.exports = { app, server };
+module.exports = { 
+    app, 
+    server, 
+    registerTelegramUser, 
+    normalizePhoneNumber, 
+    findUserByTgOrPhone, 
+    verifyTelegramWebAppData,
+    inMemoryUsers 
+};

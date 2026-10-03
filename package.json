@@ -4,6 +4,7 @@
   "description": "Phoenix Bingo Ultimate Live VIP Multiplayer Game",
   "main": "server.js",
   "scripts": {
+    "dev": "node --max-old-space-size=450 server.js",
     "start": "node --max-old-space-size=450 server.js",
     "build": "node -c server.js",
     "test": "node test/platformRules.test.js"
