@@ -189,9 +189,11 @@ const GameSchema = new mongoose.Schema({
     netJackpot: Number,
     houseCut: Number,
     winners: [String],
+    winnerData: [mongoose.Schema.Types.Mixed],
     status: String,
+    playersData: [mongoose.Schema.Types.Mixed],
     createdAt: { type: Date, default: Date.now }
-});
+}, { strict: false });
 
 const TransactionSchema = new mongoose.Schema({
     userId: String,
@@ -237,6 +239,7 @@ const Promo = mongoose.models.Promo || mongoose.model('Promo', PromoSchema);
 // USER NORMALIZATION & HELPER FUNCTIONS
 // ══════════════════════════════════════════════════
 const inMemoryUsers = new Map();
+const inMemoryGames = [];
 const pendingReferrals = new Map();
 
 function normalizePhoneNumber(raw) {
@@ -1169,6 +1172,321 @@ app.get('/api/getUser/:phone', async (req, res) => {
     }
 });
 
+// ══════════════════════════════════════════════════
+// GAME HISTORY ENDPOINTS (PLAYER & ADMIN)
+// ══════════════════════════════════════════════════
+
+// Secure Player Game History (GET and POST supported)
+async function handlePlayerGameHistory(req, res) {
+    try {
+        let initData = req.headers['x-telegram-init-data'] || 
+                       (req.query && req.query.initData) || 
+                       (req.body && req.body.initData);
+
+        const authHeader = req.headers.authorization;
+        if (!initData && authHeader && authHeader.startsWith('Bearer ')) {
+            initData = authHeader.slice(7).trim();
+        }
+
+        if (!initData || typeof initData !== 'string' || !initData.trim()) {
+            return res.status(401).json({
+                success: false,
+                message: 'Unauthorized: Missing Telegram authentication. Raw phone/telegramId parameters are not accepted.'
+            });
+        }
+
+        if (!TELEGRAM_BOT_TOKEN) {
+            return res.status(500).json({
+                success: false,
+                message: 'Telegram authentication is currently unavailable (bot token not configured).'
+            });
+        }
+
+        const verification = verifyTelegramWebAppData(initData.trim(), TELEGRAM_BOT_TOKEN);
+        if (!verification.valid) {
+            return res.status(401).json({
+                success: false,
+                message: `Telegram authentication failed: ${verification.error}`
+            });
+        }
+
+        const verifiedTgId = String(verification.telegramUser.id).trim();
+        const user = await findUserByTgOrPhone(verifiedTgId, null);
+        if (!user || !user.phone) {
+            return res.status(404).json({
+                success: false,
+                message: 'User account not found.'
+            });
+        }
+
+        const cleanPhone = normalizePhoneNumber(user.phone);
+        const page = Math.max(1, parseInt(req.query.page || (req.body && req.body.page) || 1, 10));
+        const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || (req.body && req.body.limit) || 20, 10)));
+        const skip = (page - 1) * limit;
+
+        let total = 0;
+        let gameDocs = [];
+
+        if (mongoose.connection.readyState === 1) {
+            const filter = {
+                status: 'COMPLETED',
+                $or: [
+                    { 'playersData.phone': cleanPhone },
+                    { 'playersData.phone': user.phone },
+                    { 'playersData.telegramId': verifiedTgId }
+                ]
+            };
+            total = await Game.countDocuments(filter);
+            gameDocs = await Game.find(filter)
+                .sort({ gameId: -1, createdAt: -1 })
+                .skip(skip)
+                .limit(limit);
+        } else {
+            // In-memory fallback
+            const matched = inMemoryGames.filter(g => {
+                if (g.status !== 'COMPLETED') return false;
+                const players = Array.isArray(g.playersData) ? g.playersData : [];
+                return players.some(p => {
+                    const pPhone = normalizePhoneNumber(p.phone);
+                    const pTg = String(p.telegramId || '').trim();
+                    return pPhone === cleanPhone || p.phone === user.phone || pTg === verifiedTgId;
+                });
+            });
+            total = matched.length;
+            gameDocs = matched.slice(skip, skip + limit);
+        }
+
+        const history = gameDocs.map(g => {
+            const players = Array.isArray(g.playersData) ? g.playersData : [];
+            const myRecord = players.find(p => {
+                const pPhone = normalizePhoneNumber(p.phone);
+                const pTg = String(p.telegramId || '').trim();
+                return pPhone === cleanPhone || p.phone === user.phone || (verifiedTgId && pTg === verifiedTgId);
+            });
+
+            const ticketIds = myRecord ? (Array.isArray(myRecord.ticketIds) ? myRecord.ticketIds : (myRecord.ticketsData || []).map(t => t.id)) : [];
+            
+            // Determine won and prize using winnerData first, then fallback to winners array
+            let isWinner = false;
+            let playerPrize = 0;
+
+            if (Array.isArray(g.winnerData) && g.winnerData.length > 0) {
+                const winEntry = g.winnerData.find(w => 
+                    (verifiedTgId && String(w.telegramId || '').trim() === verifiedTgId) ||
+                    (cleanPhone && (normalizePhoneNumber(w.phone) === cleanPhone || w.phone === user.phone))
+                );
+                if (winEntry) {
+                    isWinner = true;
+                    playerPrize = Number(winEntry.prize || 0);
+                }
+            } else {
+                const winners = Array.isArray(g.winners) ? g.winners : (g.winners ? [g.winners] : []);
+                isWinner = winners.some(w => {
+                    const cleanW = String(w).trim();
+                    return cleanW === cleanPhone || cleanW === user.phone || cleanW === verifiedTgId || (myRecord && cleanW === myRecord.name);
+                });
+                const winnerCount = Math.max(1, winners.length);
+                const totalPot = Number(g.netJackpot || g.totalJackpot || 0);
+                playerPrize = isWinner ? Math.round((totalPot / winnerCount) * 100) / 100 : 0;
+            }
+
+            const calledNums = Array.isArray(g.numbers) ? g.numbers : (Array.isArray(g.calledNumbers) ? g.calledNumbers : []);
+
+            return {
+                gameId: g.gameId,
+                date: g.createdAt || new Date(),
+                status: g.status || 'COMPLETED',
+                stake: g.stake || 10,
+                ticketIds: ticketIds.map(Number),
+                ticketCount: ticketIds.length,
+                calledNumbers: calledNums,
+                drawnNumbers: calledNums,
+                won: isWinner,
+                outcome: isWinner ? 'win' : 'loss',
+                prize: playerPrize,
+                winningAmount: playerPrize,
+                totalJackpot: g.totalJackpot || 0,
+                netJackpot: g.netJackpot || 0
+            };
+        });
+
+        return res.json({
+            success: true,
+            history,
+            page,
+            limit,
+            total
+        });
+    } catch (err) {
+        console.error('Player game history error:', err);
+        return res.status(500).json({ success: false, message: 'Failed to retrieve game history' });
+    }
+}
+
+app.get('/api/user/game-history', handlePlayerGameHistory);
+app.post('/api/user/game-history', handlePlayerGameHistory);
+
+// Admin Game History (POST /api/admin/history)
+app.post('/api/admin/history', async (req, res) => {
+    try {
+        const { adminPass, page = 1, limit = 20, search = '' } = req.body || {};
+        if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
+            return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin credentials' });
+        }
+
+        const p = Math.max(1, parseInt(page, 10));
+        const l = Math.min(100, Math.max(1, parseInt(limit, 10)));
+        const skip = (p - 1) * l;
+
+        let total = 0;
+        let docs = [];
+
+        if (mongoose.connection.readyState === 1) {
+            const filter = { status: 'COMPLETED' };
+            const cleanSearch = String(search || '').trim();
+            if (cleanSearch) {
+                const escapedSearch = cleanSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const numSearch = parseInt(cleanSearch, 10);
+                if (!isNaN(numSearch)) {
+                    filter.$or = [
+                        { gameId: numSearch },
+                        { 'playersData.ticketIds': numSearch },
+                        { 'playersData.phone': { $regex: escapedSearch, $options: 'i' } }
+                    ];
+                } else {
+                    filter.$or = [
+                        { 'playersData.phone': { $regex: escapedSearch, $options: 'i' } },
+                        { 'playersData.name': { $regex: escapedSearch, $options: 'i' } },
+                        { winners: { $regex: escapedSearch, $options: 'i' } }
+                    ];
+                }
+            }
+            total = await Game.countDocuments(filter);
+            docs = await Game.find(filter)
+                .sort({ gameId: -1, createdAt: -1 })
+                .skip(skip)
+                .limit(l);
+        } else {
+            // In-memory fallback
+            const cleanSearch = String(search || '').trim().toLowerCase();
+            let matched = inMemoryGames.filter(g => g.status === 'COMPLETED');
+            if (cleanSearch) {
+                matched = matched.filter(g => {
+                    if (String(g.gameId).includes(cleanSearch)) return true;
+                    const players = Array.isArray(g.playersData) ? g.playersData : [];
+                    return players.some(p => 
+                        (p.phone && p.phone.toLowerCase().includes(cleanSearch)) ||
+                        (p.name && p.name.toLowerCase().includes(cleanSearch)) ||
+                        (p.ticketIds && p.ticketIds.includes(parseInt(cleanSearch, 10)))
+                    );
+                });
+            }
+            total = matched.length;
+            docs = matched.slice(skip, skip + l);
+        }
+
+        const history = docs.map(doc => {
+            const winnersArr = Array.isArray(doc.winners) ? doc.winners : (doc.winners ? [doc.winners] : []);
+            const winnerPhone = winnersArr.join(', ');
+            let winnerName = winnersArr[0] || 'Unknown';
+            let winningTicketId = '';
+
+            if (Array.isArray(doc.playersData)) {
+                const found = doc.playersData.find(p => winnersArr.includes(p.phone) || winnersArr.includes(p.name));
+                if (found) {
+                    winnerName = found.name || winnerName;
+                    if (found.ticketIds && found.ticketIds.length > 0) {
+                        winningTicketId = found.ticketIds[0];
+                    }
+                }
+            }
+
+            if (Array.isArray(doc.winnerData) && doc.winnerData.length > 0) {
+                const w0 = doc.winnerData[0];
+                winnerName = w0.name || winnerName;
+                winnerPhone = doc.winnerData.map(w => w.phone).filter(Boolean).join(', ') || winnerPhone;
+                if (w0.ticketIds && w0.ticketIds.length > 0) {
+                    winningTicketId = w0.ticketIds.join(', ');
+                }
+            }
+
+            return {
+                _id: String(doc._id || doc.gameId),
+                gameId: doc.gameId,
+                date: doc.createdAt || new Date(),
+                winnerName,
+                winnerPhone,
+                ticketId: winningTicketId || 'N/A',
+                prize: doc.netJackpot || 0,
+                adminProfit: doc.houseCut || Math.max(0, (doc.totalJackpot || 0) - (doc.netJackpot || 0)),
+                stake: doc.stake || 10,
+                totalJackpot: doc.totalJackpot || 0,
+                netJackpot: doc.netJackpot || 0,
+                houseCut: doc.houseCut || Math.max(0, (doc.totalJackpot || 0) - (doc.netJackpot || 0)),
+                playersData: doc.playersData || [],
+                winners: doc.winners || [],
+                winnerData: doc.winnerData || [],
+                calledNumbers: doc.numbers || [],
+                numbers: doc.numbers || [],
+                status: doc.status || 'COMPLETED'
+            };
+        });
+
+        return res.json({ success: true, history, total });
+    } catch (err) {
+        console.error('Admin game history error:', err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
+
+// Admin Delete Game History
+app.post('/api/admin/delete-history', async (req, res) => {
+    try {
+        const { adminPass, ids } = req.body || {};
+        if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
+            return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin credentials' });
+        }
+        if (Array.isArray(ids) && ids.length > 0) {
+            if (mongoose.connection.readyState === 1) {
+                await Game.deleteMany({ _id: { $in: ids }, status: 'COMPLETED' });
+            }
+            for (let i = inMemoryGames.length - 1; i >= 0; i--) {
+                const matchesId = ids.includes(String(inMemoryGames[i]._id)) || ids.includes(String(inMemoryGames[i].gameId));
+                if (matchesId && inMemoryGames[i].status === 'COMPLETED') {
+                    inMemoryGames.splice(i, 1);
+                }
+            }
+        }
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('Delete history error:', err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
+
+// Admin Delete Old Game History
+app.post('/api/admin/delete-old-history', async (req, res) => {
+    try {
+        const { adminPass } = req.body || {};
+        if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
+            return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin credentials' });
+        }
+        const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+        if (mongoose.connection.readyState === 1) {
+            await Game.deleteMany({ status: 'COMPLETED', createdAt: { $lt: sixHoursAgo } });
+        }
+        for (let i = inMemoryGames.length - 1; i >= 0; i--) {
+            if (inMemoryGames[i].status === 'COMPLETED' && new Date(inMemoryGames[i].createdAt) < sixHoursAgo) {
+                inMemoryGames.splice(i, 1);
+            }
+        }
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('Delete old history error:', err);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
+
 
 // ══════════════════════════════════════════════════
 // BINGO GAME ENGINE & SOCKET.IO STATE MACHINE
@@ -1246,15 +1564,78 @@ function startCountdown() {
     }
 }
 
-function startGamePlay() {
+async function startGamePlay() {
     currentGame.state = 'PLAYING';
     currentGame.drawnNumbers = [];
     currentGame.remainingNumbers = shuffle(Array.from({ length: 75 }, (_, i) => i + 1));
     
-    // Calculate Jackpots
-    const totalPlayers = currentGame.players.size;
-    currentGame.totalJackpot = totalPlayers * currentGame.stake;
+    // Calculate Jackpots based on real reserved tickets
+    const totalTickets = currentGame.selectedCards.size;
+    currentGame.totalJackpot = totalTickets * currentGame.stake;
     currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
+
+    // Compile final real players data for MongoDB persistence
+    const finalPlayersData = [];
+    for (const player of currentGame.players.values()) {
+        if (player.tickets && player.tickets.length > 0) {
+            let tgId = '';
+            const userRecord = await findUserByTgOrPhone(null, player.phone);
+            if (userRecord && userRecord.telegramId) {
+                tgId = String(userRecord.telegramId).trim();
+            }
+            finalPlayersData.push({
+                telegramId: tgId,
+                phone: player.phone,
+                name: player.name,
+                ticketCount: player.tickets.length,
+                ticketIds: player.tickets.map(t => parseInt(t.id, 10)),
+                ticketsData: player.tickets
+            });
+        }
+    }
+
+    const memoryRecord = {
+        _id: 'game_' + currentGame.gameId,
+        gameId: currentGame.gameId,
+        stake: currentGame.stake,
+        totalJackpot: currentGame.totalJackpot,
+        netJackpot: currentGame.netJackpot,
+        houseCut: Math.max(0, currentGame.totalJackpot - currentGame.netJackpot),
+        status: 'PLAYING',
+        playersData: finalPlayersData,
+        numbers: [],
+        winners: [],
+        createdAt: new Date()
+    };
+    const memIdx = inMemoryGames.findIndex(g => g.gameId === currentGame.gameId);
+    if (memIdx >= 0) {
+        inMemoryGames[memIdx] = { ...inMemoryGames[memIdx], ...memoryRecord };
+    } else {
+        inMemoryGames.unshift(memoryRecord);
+    }
+
+    // Persist final locked ticket ownership to MongoDB
+    if (mongoose.connection.readyState === 1) {
+        try {
+            await Game.findOneAndUpdate(
+                { gameId: currentGame.gameId },
+                {
+                    gameId: currentGame.gameId,
+                    stake: currentGame.stake,
+                    totalJackpot: currentGame.totalJackpot,
+                    netJackpot: currentGame.netJackpot,
+                    houseCut: Math.max(0, currentGame.totalJackpot - currentGame.netJackpot),
+                    status: 'PLAYING',
+                    playersData: finalPlayersData,
+                    numbers: [],
+                    createdAt: new Date()
+                },
+                { upsert: true, new: true }
+            );
+        } catch (dbErr) {
+            console.warn('[MongoDB] Persist game tickets error:', dbErr.message);
+        }
+    }
 
     io.emit('game_status', getGameStatusPayload());
     io.emit('gameStarted', {
@@ -1286,18 +1667,102 @@ function startGamePlay() {
     }
 }
 
-function endGame(winners) {
+async function endGame(winners) {
     if (currentGame.drawInterval) {
         clearInterval(currentGame.drawInterval);
         currentGame.drawInterval = null;
     }
     currentGame.state = 'ENDED';
+    const totalPrize = currentGame.netJackpot || currentGame.totalJackpot || 0;
+    const winnerPhone = (winners && winners[0]) || '';
+    let winningTicketId = 'N/A';
+    let winningGrid = null;
+    let winnerName = winnerPhone || 'Player';
+
+    // Look up winner details from current game players
+    for (const player of currentGame.players.values()) {
+        if (winners && (winners.includes(player.phone) || winners.includes(player.telegramId))) {
+            winnerName = player.name || winnerName;
+            if (Array.isArray(player.tickets) && player.tickets.length > 0) {
+                winningTicketId = player.tickets[0].id;
+                winningGrid = player.tickets[0].grid || null;
+            }
+            break;
+        }
+    }
+
     io.emit('gameOver', { winners, gameId: currentGame.gameId });
     io.emit('game_winner', {
-        phone: (winners && winners[0]) || '',
+        phone: winnerPhone,
+        winnerName: winnerName,
         isShared: winners && winners.length > 1,
-        winnerCount: winners ? winners.length : 0
+        winnerCount: winners ? winners.length : 0,
+        totalPrize: totalPrize,
+        ticketId: winningTicketId,
+        ticketGrid: winningGrid,
+        calledNumbers: currentGame.drawnNumbers
     });
+
+    // Build structured winnerData
+    const winnersList = Array.isArray(winners) ? winners : (winners ? [winners] : []);
+    const winnerCount = Math.max(1, winnersList.length);
+    const perWinnerPrize = Math.round((totalPrize / winnerCount) * 100) / 100;
+
+    const winnerData = [];
+    for (const w of winnersList) {
+        const cleanW = String(w).trim();
+        let foundPlayer = null;
+        for (const p of currentGame.players.values()) {
+            if (p.phone === cleanW || p.telegramId === cleanW || (p.name && p.name === cleanW)) {
+                foundPlayer = p;
+                break;
+            }
+        }
+        let wTgId = foundPlayer ? (foundPlayer.telegramId || '') : '';
+        let wPhone = foundPlayer ? (foundPlayer.phone || '') : cleanW;
+        let wName = foundPlayer ? (foundPlayer.name || 'Winner') : (cleanW || 'Winner');
+        let wTicketIds = foundPlayer && Array.isArray(foundPlayer.tickets) ? foundPlayer.tickets.map(t => parseInt(t.id, 10)) : [];
+        if (!wTgId && wPhone) {
+            const cleanP = normalizePhoneNumber(wPhone);
+            const memU = inMemoryUsers.get(cleanP) || inMemoryUsers.get(wPhone);
+            if (memU && memU.telegramId) {
+                wTgId = String(memU.telegramId).trim();
+            }
+        }
+        winnerData.push({
+            telegramId: wTgId,
+            phone: wPhone,
+            name: wName,
+            ticketIds: wTicketIds,
+            prize: perWinnerPrize,
+            gameId: currentGame.gameId
+        });
+    }
+
+    // Update completed game status in MongoDB
+    if (mongoose.connection.readyState === 1) {
+        try {
+            await Game.findOneAndUpdate(
+                { gameId: currentGame.gameId },
+                {
+                    status: 'COMPLETED',
+                    numbers: currentGame.drawnNumbers,
+                    winners: winners || [],
+                    winnerData: winnerData
+                }
+            );
+        } catch (dbErr) {
+            console.warn('[MongoDB] Persist game end error:', dbErr.message);
+        }
+    }
+
+    const existingMem = inMemoryGames.find(g => g.gameId === currentGame.gameId);
+    if (existingMem) {
+        existingMem.status = 'COMPLETED';
+        existingMem.numbers = [...currentGame.drawnNumbers];
+        existingMem.winners = winners || [];
+        existingMem.winnerData = winnerData;
+    }
 
     setTimeout(() => {
         resetGame();
@@ -1310,6 +1775,10 @@ function resetGame() {
     currentGame.drawnNumbers = [];
     currentGame.remainingNumbers = Array.from({ length: 75 }, (_, i) => i + 1);
     currentGame.selectedCards.clear();
+    for (const player of currentGame.players.values()) {
+        player.tickets = [];
+    }
+    io.emit('update_taken_tickets', []);
     io.emit('gameState', { state: currentGame.state, gameId: currentGame.gameId });
     startCountdown();
 }
@@ -1325,7 +1794,20 @@ io.on('connection', (socket) => {
 
     socket.on('get_initial_data', (phone) => {
         socket.emit('game_status', getGameStatusPayload());
-        const playerRecord = currentGame.players.get(socket.id);
+        const cleanPhone = normalizePhoneNumber(phone) || (phone ? String(phone).trim() : '');
+        let playerRecord = null;
+        if (cleanPhone) {
+            for (const p of currentGame.players.values()) {
+                if (p.phone === cleanPhone) {
+                    playerRecord = p;
+                    playerRecord.socketId = socket.id;
+                    break;
+                }
+            }
+        }
+        if (!playerRecord) {
+            playerRecord = currentGame.players.get(socket.id);
+        }
         const myTickets = (playerRecord && playerRecord.tickets) || [];
         socket.emit('sync_data', {
             globalTakenTickets: Array.from(currentGame.selectedCards.keys()),
@@ -1336,58 +1818,248 @@ io.on('connection', (socket) => {
 
     socket.on('joinGame', (data) => {
         if (!data) return;
-        currentGame.players.set(socket.id, {
-            telegramId: data.telegramId,
+        const cleanPhone = normalizePhoneNumber(data.telegramId) || String(data.telegramId || '').trim();
+        let playerRecord = currentGame.players.get(socket.id) || {
+            socketId: socket.id,
+            telegramId: cleanPhone,
+            phone: cleanPhone,
             name: data.name || 'Player',
             tickets: []
-        });
+        };
+        playerRecord.socketId = socket.id;
+        playerRecord.name = data.name || playerRecord.name;
+        currentGame.players.set(socket.id, playerRecord);
         io.emit('playerCount', currentGame.players.size);
     });
 
+    // Real player cartela/seat selection
     socket.on('buy_tickets', (data) => {
         if (!data) return;
         const { name, phone, ticketIds, ticketsData } = data;
+        const cleanPhone = normalizePhoneNumber(phone) || (phone ? String(phone).trim() : '');
+
+        // Rule: Locked when PLAYING / COUNTDOWN finished
         if (currentGame.state !== 'WAITING') {
-            socket.emit('bet_error', 'ጨዋታው ተጀምሯል! እባክዎ ቀጣይ ዙር ይጠብቁ (Round already started)');
+            socket.emit('bet_error', 'ጨዋታው ተጀምሯል! ካርቴላ መግዛት አይቻልም (Game is LIVE! Ticket selection is locked)');
             return;
         }
-        if (Array.isArray(ticketIds)) {
-            ticketIds.forEach(tid => {
-                currentGame.selectedCards.set(tid, socket.id);
+
+        if (!Array.isArray(ticketIds) || ticketIds.length === 0) return;
+
+        // Check availability for all requested ticketIds: server is source of truth!
+        const conflictIds = [];
+        for (const rawId of ticketIds) {
+            const tid = parseInt(rawId, 10);
+            if (isNaN(tid) || tid < 1) continue;
+            const owner = currentGame.selectedCards.get(tid);
+            if (owner) {
+                const isMe = (owner.socketId === socket.id) || (cleanPhone && owner.phone === cleanPhone);
+                if (!isMe) {
+                    conflictIds.push(tid);
+                }
+            }
+        }
+
+        if (conflictIds.length > 0) {
+            socket.emit('bet_error', `ካርቴላ #${conflictIds.join(', #')} በሌላ ተጫዋች ተይዟል! እባክዎ ሌላ ይምረጡ (Selected cartela is already taken)`);
+            socket.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
+            return;
+        }
+
+        // Get or create player record
+        let playerRecord = currentGame.players.get(socket.id);
+        if (!playerRecord && cleanPhone) {
+            for (const p of currentGame.players.values()) {
+                if (p.phone === cleanPhone) {
+                    playerRecord = p;
+                    playerRecord.socketId = socket.id;
+                    break;
+                }
+            }
+        }
+        if (!playerRecord) {
+            playerRecord = {
+                socketId: socket.id,
+                telegramId: cleanPhone,
+                phone: cleanPhone,
+                name: name || 'Player',
+                tickets: []
+            };
+        }
+        playerRecord.socketId = socket.id;
+        playerRecord.name = name || playerRecord.name;
+        playerRecord.phone = cleanPhone || playerRecord.phone;
+
+        // Deduplicate: A player cannot own duplicate copies of the same cartela in the same game
+        const existingIds = new Set(playerRecord.tickets.map(t => parseInt(t.id, 10)));
+        const ticketsToAdd = Array.isArray(ticketsData) ? ticketsData : [];
+
+        for (const rawId of ticketIds) {
+            const tid = parseInt(rawId, 10);
+            if (isNaN(tid) || tid < 1) continue;
+
+            // Assign seat
+            currentGame.selectedCards.set(tid, {
+                socketId: socket.id,
+                phone: cleanPhone,
+                name: playerRecord.name
             });
+
+            // Add ticket object if not already present
+            if (!existingIds.has(tid)) {
+                const matchData = ticketsToAdd.find(td => parseInt(td.id, 10) === tid);
+                if (matchData) {
+                    playerRecord.tickets.push(matchData);
+                    existingIds.add(tid);
+                }
+            }
         }
-        const playerRecord = currentGame.players.get(socket.id) || {
-            telegramId: phone,
-            phone: phone,
-            name: name || 'Player',
-            tickets: []
-        };
-        if (Array.isArray(ticketsData)) {
-            playerRecord.tickets.push(...ticketsData);
-        }
+
         currentGame.players.set(socket.id, playerRecord);
+
+        // Update real prize pool based on real active tickets
+        const totalTickets = currentGame.selectedCards.size;
+        currentGame.totalJackpot = totalTickets * currentGame.stake;
+        currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
+
+        // Broadcast immediately to ALL players
         io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
+        io.emit('game_status', getGameStatusPayload());
         io.emit('playerCount', currentGame.players.size);
     });
 
+    // Real player cartela/seat cancellation / release
     socket.on('cancel_ticket', (data) => {
-        if (!data || currentGame.state !== 'WAITING') return;
-        const { ticketId } = data;
-        if (currentGame.selectedCards.has(ticketId)) {
-            currentGame.selectedCards.delete(ticketId);
-            const playerRecord = currentGame.players.get(socket.id);
-            if (playerRecord && Array.isArray(playerRecord.tickets)) {
-                playerRecord.tickets = playerRecord.tickets.filter(t => t.id !== ticketId);
-            }
-            socket.emit('ticket_cancelled_success', ticketId);
-            io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
+        if (!data) return;
+        const { phone, ticketId } = data;
+        const tid = parseInt(ticketId, 10);
+        if (isNaN(tid)) return;
+        const cleanPhone = normalizePhoneNumber(phone) || (phone ? String(phone).trim() : '');
+
+        // Rule: Locked when PLAYING
+        if (currentGame.state !== 'WAITING') {
+            socket.emit('bet_error', 'ጨዋታው ተጀምሯል! ካርቴላ መቀየር ወይም መሰረዝ አይቻልም (Game is LIVE! Tickets are locked)');
+            return;
         }
+
+        // Verify ownership
+        const owner = currentGame.selectedCards.get(tid);
+        if (owner) {
+            const isAuthorized = (owner.socketId === socket.id) || (cleanPhone && owner.phone === cleanPhone);
+            if (!isAuthorized) {
+                socket.emit('bet_error', 'ይህን ካርቴላ የመሰረዝ ፈቃድ የሎትም (Not authorized to cancel this ticket)');
+                return;
+            }
+            // Release cartela immediately so other players can take it
+            currentGame.selectedCards.delete(tid);
+        }
+
+        // Remove from player's tickets
+        const playerRecord = currentGame.players.get(socket.id);
+        if (playerRecord && Array.isArray(playerRecord.tickets)) {
+            playerRecord.tickets = playerRecord.tickets.filter(t => parseInt(t.id, 10) !== tid);
+        }
+        if (cleanPhone) {
+            for (const p of currentGame.players.values()) {
+                if (p.phone === cleanPhone && Array.isArray(p.tickets)) {
+                    p.tickets = p.tickets.filter(t => parseInt(t.id, 10) !== tid);
+                }
+            }
+        }
+
+        // Update prize pool
+        const totalTickets = currentGame.selectedCards.size;
+        currentGame.totalJackpot = totalTickets * currentGame.stake;
+        currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
+
+        // Notify client of cancellation success and broadcast availability change to ALL connected players
+        socket.emit('ticket_cancelled_success', tid);
+        io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
+        io.emit('game_status', getGameStatusPayload());
     });
 
-    socket.on('claimBingo', (data) => {
+    // Real player cartela change
+    socket.on('change_ticket', (data) => {
+        if (!data) return;
+        const { phone, name, oldTicketId, newTicketId, newTicketData } = data;
+        const cleanPhone = normalizePhoneNumber(phone) || (phone ? String(phone).trim() : '');
+        const oldId = parseInt(oldTicketId, 10);
+        const newId = parseInt(newTicketId, 10);
+
+        if (currentGame.state !== 'WAITING') {
+            socket.emit('bet_error', 'ጨዋታው ተጀምሯል! ካርቴላ መቀየር አይቻልም (Game is LIVE! Tickets are locked)');
+            return;
+        }
+
+        if (isNaN(newId) || newId < 1) return;
+
+        // Check if new ticket is already taken by someone else
+        const newOwner = currentGame.selectedCards.get(newId);
+        if (newOwner) {
+            const isMe = (newOwner.socketId === socket.id) || (cleanPhone && newOwner.phone === cleanPhone);
+            if (!isMe) {
+                socket.emit('bet_error', `ካርቴላ #${newId} በሌላ ተጫዋች ተይዟል! (Cartela #${newId} is already taken)`);
+                socket.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
+                return;
+            }
+        }
+
+        // Release old ticket
+        if (!isNaN(oldId) && currentGame.selectedCards.has(oldId)) {
+            const oldOwner = currentGame.selectedCards.get(oldId);
+            const isAuthorized = !oldOwner || (oldOwner.socketId === socket.id) || (cleanPhone && oldOwner.phone === cleanPhone);
+            if (isAuthorized) {
+                currentGame.selectedCards.delete(oldId);
+            }
+        }
+
+        // Reserve new ticket
+        currentGame.selectedCards.set(newId, {
+            socketId: socket.id,
+            phone: cleanPhone,
+            name: name || 'Player'
+        });
+
+        let playerRecord = currentGame.players.get(socket.id);
+        if (!playerRecord) {
+            playerRecord = {
+                socketId: socket.id,
+                telegramId: cleanPhone,
+                phone: cleanPhone,
+                name: name || 'Player',
+                tickets: []
+            };
+            currentGame.players.set(socket.id, playerRecord);
+        }
+        playerRecord.tickets = playerRecord.tickets.filter(t => parseInt(t.id, 10) !== oldId && parseInt(t.id, 10) !== newId);
+        if (newTicketData) {
+            playerRecord.tickets.push(newTicketData);
+        }
+
+        const totalTickets = currentGame.selectedCards.size;
+        currentGame.totalJackpot = totalTickets * currentGame.stake;
+        currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
+
+        socket.emit('ticket_cancelled_success', oldId);
+        socket.emit('ticket_changed_success', { oldId, newId });
+        io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
+        io.emit('game_status', getGameStatusPayload());
+    });
+
+    socket.on('claimBingo', () => {
         if (currentGame.state !== 'PLAYING') return;
-        // Verify bingo winner
-        endGame([data && data.name ? data.name : 'Player']);
+
+        const playerRecord = currentGame.players.get(socket.id);
+
+        if (!playerRecord || !playerRecord.phone) {
+            socket.emit('error', {
+                message: 'Unable to verify your player session.'
+            });
+            return;
+        }
+
+        const winnerIdentifier = playerRecord.phone;
+        endGame([winnerIdentifier]);
     });
 
     socket.on('disconnect', () => {
@@ -1415,5 +2087,9 @@ module.exports = {
     normalizePhoneNumber, 
     findUserByTgOrPhone, 
     verifyTelegramWebAppData,
-    inMemoryUsers 
+    inMemoryUsers,
+    inMemoryGames,
+    currentGame,
+    startGamePlay,
+    endGame
 };
