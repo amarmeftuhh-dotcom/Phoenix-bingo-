@@ -572,7 +572,7 @@
         </div>
 
         <div class="t-mb-toggle-bar">
-            <span id="t-info">እስካሁን ካርቴላ አልገዙም</span>
+            <span id="t-info">እስካሁን ካርቴላ አልመረጡም</span>
             <button class="t-btn-mb" onclick="toggleTicketMasterBoard()">
                 👁️ <span id="t-btn-mb-txt">ሙሉ ቦርድ እይ (Master Board)</span> <span id="mb-toggle-arrow" style="color: var(--gold); margin-left: 5px;">▼</span>
             </button>
@@ -772,6 +772,10 @@
     socket.on('connect', () => {
         const alertBox = document.getElementById('offline-alert');
         if (alertBox) alertBox.classList.remove('show');
+        if (currentUser && currentUser.phone) {
+            socket.emit('get_initial_data', currentUser.phone);
+            loadActiveTicketsData(currentUser.phone);
+        }
     });
 
     socket.on('connect_error', (err) => {
@@ -783,6 +787,7 @@
         if (alertBox) alertBox.classList.remove('show');
         if (currentUser && currentUser.phone) {
             socket.emit('get_initial_data', currentUser.phone);
+            loadActiveTicketsData(currentUser.phone);
         }
     });
 
@@ -799,6 +804,7 @@
             socket.connect();
         }
     });
+    const bHeads = ['B', 'I', 'N', 'G', 'O'];
     let called = []; 
     let currentUser = null;
     let userTicketsData = [];
@@ -871,12 +877,7 @@
         document.getElementById('lbl-t-prize').innerText = lang === 'AM' ? "ደራሽ" : "PRIZE";
         document.getElementById('t-btn-mb-txt').innerText = lang === 'AM' ? "ሙሉ ቦርድ እይ (Master Board)" : "View Master Board";
         
-        let tInfo = document.getElementById('t-info');
-        if(userTicketsData.length > 0) {
-            tInfo.innerText = lang === 'AM' ? "የገዙት ካርቴላ ብዛት: " + userTicketsData.length : "Purchased Tickets: " + userTicketsData.length;
-        } else { 
-            tInfo.innerText = lang === 'AM' ? "ካርቴላ አልገዙም! እባክዎ ቀጣይ ዙር እስኪጀምር ይጠብቁ" : "No Tickets! Please wait for the next round."; 
-        }
+        updateTicketInfoLabel();
         
         let histWait = document.getElementById('lbl-hist-wait');
         if(histWait) histWait.innerText = lang === 'AM' ? "ገና አልጀመረም..." : "Waiting to start...";
@@ -992,6 +993,7 @@
     async function checkTgAuthStatus() {
         const initData = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp.initData : null;
         if (!initData) return;
+        window._tgInitData = initData;
         try {
             let res = await fetch('/api/telegram-login', { 
                 method: 'POST', 
@@ -1018,6 +1020,7 @@
         
         if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData && window.Telegram.WebApp.initData.trim() !== '') {
             const initData = window.Telegram.WebApp.initData;
+            window._tgInitData = initData;
             
             document.getElementById('manual-login-form').style.display = 'none';
             document.getElementById('telegram-auth-loading').style.display = 'flex';
@@ -1060,23 +1063,47 @@
     };
 
     async function loadActiveTicketsData(phone) {
-        let tRes = await fetch(`/api/user/my-active-tickets/${phone}`); let tData = await tRes.json();
-        if(tData.success && tData.ticketsData && tData.ticketsData.length > 0) {
-            userTicketsData = tData.ticketsData; renderConfirmedTickets(); renderGridTakenStates(); 
-            if(tData.calledNumbers && tData.calledNumbers.length > 0) {
-                called = tData.calledNumbers;
-                called.forEach(num => {
-                    let colIdx = num <= 15 ? 0 : num <= 30 ? 1 : num <= 45 ? 2 : num <= 60 ? 3 : 4; let ballText = bHeads[colIdx] + "-" + num; let topH = document.getElementById('history-scroll-top'); let tickH = document.getElementById('ticket-history-bar');
-                    if (topH && topH.innerHTML === '' || tickH && tickH.innerText.includes("ገና") || tickH && tickH.innerText.includes("Wait")) { if(tickH) tickH.innerHTML = ''; }
-                    let topDiv = document.createElement('div'); topDiv.className = 'hist-top-ball'; topDiv.innerText = ballText; let tickDiv = document.createElement('div'); tickDiv.className = 'hist-top-ball'; tickDiv.innerText = ballText;
-                    if(topH) topH.insertBefore(topDiv, topH.firstChild); if(tickH) tickH.insertBefore(tickDiv, tickH.firstChild); 
-                });
-                called.forEach(num => {
-                    document.querySelectorAll('.t-v-' + num).forEach(c => c.classList.add('marked'));
-                    let mbCell = document.getElementById('mb-' + num); if(mbCell) mbCell.classList.add('called'); let tmbCell = document.getElementById('tmb-' + num); if(tmbCell) tmbCell.classList.add('called');
-                });
+        try {
+            const initData = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) || window._tgInitData || '';
+            const headers = {};
+            if (initData) {
+                headers['X-Telegram-Init-Data'] = initData;
             }
-        }
+            let tRes = await fetch('/api/user/my-active-tickets', { headers });
+            if (!tRes.ok) return;
+            let tData = await tRes.json();
+            if(tData && tData.success && Array.isArray(tData.ticketsData)) {
+                userTicketsData = tData.ticketsData; 
+                renderConfirmedTickets(); 
+                updateBetPreview(); 
+                renderGridTakenStates(); 
+                let navTicket = document.getElementById('nav-item-ticket');
+                if (navTicket) {
+                    if (userTicketsData.length > 0 || isGameRunningLocally || currentGameState === 'PLAYING') {
+                        navTicket.style.display = 'flex';
+                    }
+                }
+                if(Array.isArray(tData.calledNumbers) && tData.calledNumbers.length > 0) {
+                    called = tData.calledNumbers;
+                    called.forEach(num => {
+                        let colIdx = num <= 15 ? 0 : num <= 30 ? 1 : num <= 45 ? 2 : num <= 60 ? 3 : 4; 
+                        let ballText = bHeads[colIdx] + "-" + num; 
+                        let topH = document.getElementById('history-scroll-top'); 
+                        let tickH = document.getElementById('ticket-history-bar');
+                        if (topH && topH.innerHTML === '' || tickH && tickH.innerText.includes("ገና") || tickH && tickH.innerText.includes("Wait")) { if(tickH) tickH.innerHTML = ''; }
+                        let topDiv = document.createElement('div'); topDiv.className = 'hist-top-ball'; topDiv.innerText = ballText; 
+                        let tickDiv = document.createElement('div'); tickDiv.className = 'hist-top-ball'; tickDiv.innerText = ballText;
+                        if(topH) topH.insertBefore(topDiv, topH.firstChild); 
+                        if(tickH) tickH.insertBefore(tickDiv, tickH.firstChild); 
+                    });
+                    called.forEach(num => {
+                        document.querySelectorAll('.t-v-' + num).forEach(c => c.classList.add('marked'));
+                        let mbCell = document.getElementById('mb-' + num); if(mbCell) mbCell.classList.add('called'); 
+                        let tmbCell = document.getElementById('tmb-' + num); if(tmbCell) tmbCell.classList.add('called');
+                    });
+                }
+            }
+        } catch(e) {}
     }
 
     socket.on('new_promo_alert', (data) => {
@@ -1174,7 +1201,6 @@
     function closeWithdrawModal(e) { if(e && e.target.id !== 'wit-modal-overlay') return; document.getElementById('wit-modal').classList.remove('show'); setTimeout(() => { document.getElementById('wit-modal-overlay').style.display = 'none'; }, 300); }
     
     const depAccounts = { 'telebirr': {num: '0900000000', name: 'እዚህ ጋር ስምህን ፃፍ'}, 'cbe': {num: '1000000000000', name: 'እዚህ ጋር ስምህን ፃፍ'}, 'mpesa': {num: '0700000000', name: 'እዚህ ጋር ስምህን ፃፍ'} };
-    const bHeads = ['B', 'I', 'N', 'G', 'O'];
 
     function selectBank(method, element, type) {
         let gridId = type === 'dep' ? 'dep-bank-grid' : 'wit-bank-grid'; let buttons = document.querySelectorAll(`#${gridId} .bank-btn`); buttons.forEach(btn => btn.classList.remove('active')); element.classList.add('active');
@@ -1349,38 +1375,38 @@
             const title = document.getElementById('rnk-title');
             if (title) title.innerText = currentLang === 'AM' ? 'የ7 ቀን የካርድ ደረጃ' : '7-day card leaderboard';
             renderPlayerSeasonCountdown();
-            if(data.success && data.leaderboard && data.leaderboard.length > 0) {
+            if(data.success && Array.isArray(data.leaderboard) && data.leaderboard.length > 0) {
                 let ranks = data.leaderboard;
                 let html = '';
 
                 html += `<div class="podium-container">`;
                 
-                if(ranks[1]) {
+                if(ranks && ranks[1]) {
                     let name2 = ranks[1].name || "Player";
                     let prize2 = cardRankLabel(ranks[1].cards || ranks[1].won || ranks[1].amount || 0);
                     html += `<div class="podium-box podium-2">
-                                <div class="podium-avatar p-2-ava">${name2.charAt(0).toUpperCase()}</div>
+                                <div class="podium-avatar p-2-ava">${(name2.charAt(0) || 'P').toUpperCase()}</div>
                                 <div class="podium-name">${name2}</div>
                                 <div class="podium-prize">${prize2}</div>
                              </div>`;
                 }
 
-                if(ranks[0]) {
+                if(ranks && ranks[0]) {
                     let name1 = ranks[0].name || "Player";
                     let prize1 = cardRankLabel(ranks[0].cards || ranks[0].won || ranks[0].amount || 0);
                     html += `<div class="podium-box podium-1">
                                 <div class="crown-icon">👑</div>
-                                <div class="podium-avatar p-1-ava">${name1.charAt(0).toUpperCase()}</div>
+                                <div class="podium-avatar p-1-ava">${(name1.charAt(0) || 'P').toUpperCase()}</div>
                                 <div class="podium-name" style="font-size:12px;">${name1}</div>
                                 <div class="podium-prize" style="font-size:12px;">${prize1}</div>
                              </div>`;
                 }
 
-                if(ranks[2]) {
+                if(ranks && ranks[2]) {
                     let name3 = ranks[2].name || "Player";
                     let prize3 = cardRankLabel(ranks[2].cards || ranks[2].won || ranks[2].amount || 0);
                     html += `<div class="podium-box podium-3">
-                                <div class="podium-avatar p-3-ava">${name3.charAt(0).toUpperCase()}</div>
+                                <div class="podium-avatar p-3-ava">${(name3.charAt(0) || 'P').toUpperCase()}</div>
                                 <div class="podium-name">${name3}</div>
                                 <div class="podium-prize">${prize3}</div>
                              </div>`;
@@ -1453,12 +1479,17 @@
         list.innerHTML = '<p style="text-align:center; color:#94a3b8;">Loading...</p>';
         try {
             const res = await fetch('/api/user/game-history/' + encodeURIComponent(currentUser.phone) + '?t=' + Date.now());
-            const data = await res.json();
-            if (!data.success || !data.rounds || !data.rounds.length) {
+            if (!res.ok) {
                 list.innerHTML = '<p style="text-align:center; color:#94a3b8;">No rounds yet.</p>';
                 return;
             }
-            list.innerHTML = data.rounds.map((round) => {
+            const data = await res.json();
+            const rounds = (data && (data.rounds || data.history)) || [];
+            if (!data.success || !rounds.length) {
+                list.innerHTML = '<p style="text-align:center; color:#94a3b8;">No rounds yet.</p>';
+                return;
+            }
+            list.innerHTML = rounds.map((round) => {
                 const when = new Date(round.date).toLocaleString();
                 const nums = (round.calledNumbers || []).join(', ') || '-';
                 const cards = (round.ticketIds || []).map((id) => '#' + id).join(', ') || '-';
@@ -1616,19 +1647,24 @@
     });
 
     socket.on('sync_data', (data) => {
-        globalTakenTickets = data.globalTakenTickets || []; called = data.calledNumbers || []; userTicketsData = data.myTickets || [];
+        globalTakenTickets = data.globalTakenTickets || []; 
+        called = data.calledNumbers || []; 
+        userTicketsData = Array.isArray(data.myTickets) ? data.myTickets : [];
         let gballs = document.getElementById('g-balls'); if(gballs) gballs.innerText = called.length + "/75"; 
         document.getElementById('t-page-balls').innerText = called.length + "/75"; 
         
         isProcessingTicket = false;
         renderGridTakenStates();
         updateBetPreview();
-        
         renderConfirmedTickets();
-        if(userTicketsData.length > 0) { 
-            document.getElementById('t-info').innerText = "የገዙት ካርቴላ ብዛት: " + userTicketsData.length;
-        } else { 
-            document.getElementById('t-info').innerText = "እስካሁን ካርቴላ አልገዙም"; 
+        
+        let navTicket = document.getElementById('nav-item-ticket');
+        if (navTicket) {
+            if (userTicketsData.length > 0 || isGameRunningLocally || currentGameState === 'PLAYING') {
+                navTicket.style.display = 'flex';
+            } else {
+                navTicket.style.display = 'none';
+            }
         }
         
         document.querySelectorAll('.mb-cell').forEach(c => c.classList.remove('called', 'current'));
@@ -1741,7 +1777,7 @@
                     document.getElementById('ticket-list').innerHTML = ''; 
                     let gmt = document.getElementById('game-mini-tickets'); if(gmt) gmt.innerHTML = '';
                     
-                    document.getElementById('t-info').innerText = currentLang === 'AM' ? "ካርቴላ አልገዙም! እባክዎ ቀጣይ ዙር እስኪጀምር ይጠብቁ" : "No Tickets! Please wait for the next round.";
+                    updateTicketInfoLabel();
                     
                     if (document.getElementById('ticket-page').classList.contains('active-page')) { 
                         showPage('home', document.getElementById('nav-home')); 
@@ -1780,7 +1816,17 @@
         let gballs = document.getElementById('g-balls'); if(gballs) gballs.innerText = called.length + "/75"; 
         document.getElementById('t-page-balls').innerText = called.length + "/75"; 
         updateLiveUI(num, true);
-        userTicketsData.forEach(t => { for(let c=0; c<5; c++) { for(let r=0; r<5; r++) { if(t.grid[c][r] === num) t.marks[c][r] = 1; } } });
+        userTicketsData.forEach(t => { 
+            if (t && Array.isArray(t.grid)) {
+                for(let c=0; c<5; c++) { 
+                    if (Array.isArray(t.grid[c])) {
+                        for(let r=0; r<5; r++) { 
+                            if(t.grid[c][r] === num && t.marks && t.marks[c]) t.marks[c][r] = 1; 
+                        } 
+                    }
+                } 
+            }
+        });
     });
 
     socket.on('game_winner', (data) => {
@@ -1817,7 +1863,7 @@
                         <div style="font-size: 14px; font-weight: bold; color: #ffffff;">👤 ${w.name}</div>
                         <div style="color:#94a3b8; font-size:11px; margin-top:4px;">${currentLang === 'AM' ? "ካርቴላ" : "Ticket"}: <b style="color:var(--gold); font-size:13px;">#${w.ticket}</b></div>
                     </div>
-                    <div style="color:var(--cyan); font-weight:900; font-size: 15px;">${w.prize.toLocaleString('en-US', {maximumFractionDigits: 0})} ETB</div>
+                    <div style="color:var(--cyan); font-weight:900; font-size: 15px;">${Number((w && w.prize) || 0).toLocaleString('en-US', {maximumFractionDigits: 0})} ETB</div>
                 </li>`;
             });
             sharedListHtml += `</ul></div>`;
@@ -1829,7 +1875,7 @@
         let winPrizeBoxHtml = `
             <div style="background: rgba(0, 0, 0, 0.5); padding: 15px; border-radius: 15px; border: 1px solid rgba(255,255,255,0.1); box-shadow: inset 0 0 15px rgba(0,0,0,0.5);">
                 <p style="margin:0; font-size:11px; color:#94a3b8; font-weight:bold; letter-spacing:1px; text-transform:uppercase;">${currentLang === 'AM' ? "የገንዘብ ሽልማት (Prize)" : "Prize Amount"}</p>
-                <h1 style="margin:8px 0 0 0; color:#34d399; font-size: 26px; text-shadow: 0 0 10px rgba(52, 211, 153, 0.4);" id="win-prize">${data.totalPrize.toLocaleString('en-US', {maximumFractionDigits: 0})} ETB</h1>
+                <h1 style="margin:8px 0 0 0; color:#34d399; font-size: 26px; text-shadow: 0 0 10px rgba(52, 211, 153, 0.4);" id="win-prize">${Number((data && data.totalPrize) || 0).toLocaleString('en-US', {maximumFractionDigits: 0})} ETB</h1>
             </div>
         `;
 
@@ -1846,29 +1892,36 @@
                 ${winPrizeBoxHtml}
             `;
 
-            let g = data.ticketGrid; let cld = data.calledNumbers;
-            let html = `<div style="width:210px; margin: 10px auto 0 auto; border-radius: 12px; overflow: hidden; background: var(--panel); box-shadow: 0 10px 25px rgba(0,0,0,0.8); border: 2px solid var(--gold); padding: 5px;">`;
-            html += `<div class="preview-t-grid" style="gap: 1px; background: rgba(255,255,255,0.1); border-radius: 6px; overflow: hidden;">`;
-            
-            for(let i=0; i<5; i++) { 
-                html += `<div class="preview-t-head" style="background:var(--gold-grad); color:#000; height:28px; font-size:12px; display:flex; align-items:center; justify-content:center;">${bHeads[i]}</div>`; 
-            }
-            for(let r=0; r<5; r++){
-                for(let c=0; c<5; c++){
-                    let num = g[c][r];
-                    if(r===2 && c===2) { 
-                        html += `<div class="preview-t-cell marked" style="background:#fff; height:32px; display:flex; align-items:center; justify-content:center; color:var(--gold); font-size:18px; text-shadow:0 0 5px var(--gold);">★</div>`; 
-                    } 
-                    else if(cld.includes(num)) { 
-                        html += `<div class="preview-t-cell" style="background:#fff; height:32px; display:flex; align-items:center; justify-content:center;"><div class="win-gold-ball">${num}</div></div>`; 
-                    } 
-                    else { 
-                        html += `<div class="preview-t-cell" style="background:#fff; color:#000; height:32px; font-size:14px; font-weight:bold; display:flex; align-items:center; justify-content:center;">${num}</div>`; 
+            let g = (data && Array.isArray(data.ticketGrid) && data.ticketGrid.length === 5) ? data.ticketGrid : null;
+            let cld = (data && Array.isArray(data.calledNumbers)) ? data.calledNumbers : (Array.isArray(called) ? called : []);
+            let winTicketDisplay = document.getElementById('win-ticket-display');
+
+            if (g && winTicketDisplay) {
+                let html = `<div style="width:210px; margin: 10px auto 0 auto; border-radius: 12px; overflow: hidden; background: var(--panel); box-shadow: 0 10px 25px rgba(0,0,0,0.8); border: 2px solid var(--gold); padding: 5px;">`;
+                html += `<div class="preview-t-grid" style="gap: 1px; background: rgba(255,255,255,0.1); border-radius: 6px; overflow: hidden;">`;
+                
+                for(let i=0; i<5; i++) { 
+                    html += `<div class="preview-t-head" style="background:var(--gold-grad); color:#000; height:28px; font-size:12px; display:flex; align-items:center; justify-content:center;">${bHeads[i]}</div>`; 
+                }
+                for(let r=0; r<5; r++){
+                    for(let c=0; c<5; c++){
+                        let num = (g[c] && g[c][r] !== undefined) ? g[c][r] : '';
+                        if(r===2 && c===2) { 
+                            html += `<div class="preview-t-cell marked" style="background:#fff; height:32px; display:flex; align-items:center; justify-content:center; color:var(--gold); font-size:18px; text-shadow:0 0 5px var(--gold);">★</div>`; 
+                        } 
+                        else if(cld.includes(num)) { 
+                            html += `<div class="preview-t-cell" style="background:#fff; height:32px; display:flex; align-items:center; justify-content:center;"><div class="win-gold-ball">${num}</div></div>`; 
+                        } 
+                        else { 
+                            html += `<div class="preview-t-cell" style="background:#fff; color:#000; height:32px; font-size:14px; font-weight:bold; display:flex; align-items:center; justify-content:center;">${num}</div>`; 
+                        }
                     }
                 }
+                html += `</div></div>`; 
+                winTicketDisplay.innerHTML = html;
+            } else if (winTicketDisplay) {
+                winTicketDisplay.innerHTML = '';
             }
-            html += `</div></div>`; 
-            document.getElementById('win-ticket-display').innerHTML = html;
 
         } else {
             winnerCard.innerHTML = `
@@ -1917,7 +1970,7 @@
                 }
                 
                 let isLiveMode = document.getElementById('timer').innerText.includes("LIVE") || document.getElementById('timer-status-text').innerText.includes("LIVE") || document.getElementById('timer-status-text').innerText.includes("በመካሄድ");
-                if(isLiveMode) return; 
+                if(isLiveMode || isGameRunningLocally || currentGameState === 'PLAYING') return; 
                 
                 if(d.classList.contains('taken') && !d.classList.contains('bought-by-me')) return; 
 
@@ -1931,11 +1984,14 @@
 
                     userTicketsData = userTicketsData.filter(t => t.id !== i);
                     
-                    setTimeout(() => {
-                        renderConfirmedTickets();
-                        updateBetPreview();
-                        socket.emit('cancel_ticket', { phone: currentUser.phone, ticketId: i });
-                    }, 0);
+                    renderConfirmedTickets();
+                    updateBetPreview();
+                    renderGridTakenStates();
+                    if (userTicketsData.length === 0 && !isGameRunningLocally && currentGameState !== 'PLAYING') {
+                        let navTicket = document.getElementById('nav-item-ticket');
+                        if (navTicket) navTicket.style.display = 'none';
+                    }
+                    socket.emit('cancel_ticket', { phone: currentUser.phone, ticketId: i });
                 } 
                 else { 
                     if(userTicketsData.length >= maxTicketsLimit) { 
@@ -1966,6 +2022,15 @@
                     let marksObj = [[0,0,0,0,0], [0,0,0,0,0], [0,0,1,0,0], [0,0,0,0,0], [0,0,0,0,0]]; 
                     let singleTicket = [{ id: i, grid: cols, marksObj }];
                     
+                    if (!userTicketsData.some(t => t.id === i)) {
+                        userTicketsData.push({ id: i, grid: cols, marksObj });
+                    }
+                    renderConfirmedTickets();
+                    updateBetPreview();
+                    renderGridTakenStates();
+                    let navTicket = document.getElementById('nav-item-ticket');
+                    if (navTicket) navTicket.style.display = 'flex';
+
                     socket.emit('buy_tickets', { 
                             name: currentUser.name, 
                             phone: currentUser.phone, 
@@ -1981,38 +2046,72 @@
     }
 
     function updateBetPreview() {
-        document.getElementById('grid-sel-count').innerText = userTicketsData.length;
+        const selCount = document.getElementById('grid-sel-count');
+        if (selCount) selCount.innerText = userTicketsData.length;
         const popup = document.getElementById('bet-slip-popup'); 
         const previewBox = document.getElementById('ticket-preview-box');
+        if (!previewBox) return;
         previewBox.innerHTML = '';
 
+        const isLive = isGameRunningLocally || (typeof currentGameState !== 'undefined' && currentGameState === 'PLAYING');
+
         if(userTicketsData.length > 0) {
-            if (document.getElementById('home-page').classList.contains('active-page')) {
+            if (popup && document.getElementById('home-page').classList.contains('active-page') && !isLive) {
                 popup.classList.add('show'); 
+            } else if (popup && isLive) {
+                popup.classList.remove('show');
             }
-            document.getElementById('slip-count').innerText = userTicketsData.length; 
-            document.getElementById('slip-price').innerText = userTicketsData.length * cardTotalCost();
+            const slipCount = document.getElementById('slip-count');
+            if (slipCount) slipCount.innerText = userTicketsData.length; 
+            const slipPrice = document.getElementById('slip-price');
+            if (slipPrice) slipPrice.innerText = userTicketsData.length * cardTotalCost();
             userTicketsData.forEach(t => {
                 let card = document.createElement('div'); card.className = 'preview-t-card'; 
+                let cols = (t.grid && Array.isArray(t.grid) && t.grid.length === 5) ? t.grid : generateFixedCard(t.id);
                 let html = `<div style="text-align:center; font-size:10px; font-weight:bold; color:#1e293b; padding:1px;">#${t.id}</div><div class="preview-t-grid">`;
                 for(let i=0; i<5; i++) { html += `<div class="preview-t-head">${bHeads[i]}</div>`; }
                 for(let r=0; r<5; r++) { for(let c=0; c<5; c++) { 
                     if(r==2 && c==2) html += `<div class="preview-t-cell marked" style="color:var(--gold); font-size:12px;">★</div>`; 
-                    else html += `<div class="preview-t-cell">${t.grid[c][r]}</div>`; 
+                    else {
+                        let val = (cols && cols[c] && cols[c][r] !== undefined) ? cols[c][r] : '';
+                        html += `<div class="preview-t-cell">${val}</div>`; 
+                    }
                 } }
                 card.innerHTML = html + "</div>"; previewBox.appendChild(card);
             });
         } else { 
-            popup.classList.remove('show'); 
+            if (popup) popup.classList.remove('show'); 
         }
     }
     
+    function updateTicketInfoLabel() {
+        const tInfo = document.getElementById('t-info');
+        if (!tInfo) return;
+        const count = Array.isArray(userTicketsData) ? userTicketsData.length : 0;
+        const isLive = isGameRunningLocally || (typeof currentGameState !== 'undefined' && currentGameState === 'PLAYING');
+        if (count === 0) {
+            if (isLive) {
+                tInfo.innerText = currentLang === 'AM' ? "ካርቴላ አልገዙም! እባክዎ ቀጣይ ዙር እስኪጀምር ይጠብቁ" : "No Tickets! Please wait for the next round.";
+            } else {
+                tInfo.innerText = currentLang === 'AM' ? "እስካሁን ካርቴላ አልመረጡም" : "No cartelas selected";
+            }
+            return;
+        }
+        if (isLive) {
+            tInfo.innerText = currentLang === 'AM' ? "የገዙት ካርቴላ ብዛት: " + count : "Purchased Tickets: " + count;
+        } else {
+            tInfo.innerText = currentLang === 'AM' ? "የተመረጡ ካርቴላዎች: " + count : "Selected cartelas: " + count;
+        }
+    }
+
     function renderConfirmedTickets() { 
         const list = document.getElementById('ticket-list'); 
+        if (!list) return;
         list.innerHTML = ''; 
 
         userTicketsData.forEach(t => { 
-            let id = t.id; let cols = t.grid;
+            let id = t.id; 
+            let cols = (t.grid && Array.isArray(t.grid) && t.grid.length === 5) ? t.grid : generateFixedCard(id);
             
             let card = document.createElement('div'); card.className = 't-card'; 
             
@@ -2026,7 +2125,9 @@
                     if(r==2 && c==2) { 
                         htmlMain += `<div class="t-cell marked" style="font-size:18px;">★</div>`; 
                     } else { 
-                        htmlMain += `<div class="t-cell t-v-${cols[c][r]}">${cols[c][r]}</div>`; 
+                        let val = (cols && cols[c] && cols[c][r] !== undefined) ? cols[c][r] : '';
+                        let isMarked = (called && called.includes(val)) ? ' marked' : '';
+                        htmlMain += `<div class="t-cell t-v-${val}${isMarked}">${val}</div>`; 
                     } 
                 } 
             } 
@@ -2035,10 +2136,7 @@
             list.appendChild(card); 
         }); 
         
-        let tInfo = document.getElementById('t-info');
-        if(tInfo) {
-            tInfo.innerText = currentLang === 'AM' ? "የገዙት ካርቴላ ብዛት: " + userTicketsData.length : "Purchased Tickets: " + userTicketsData.length;
-        }
+        updateTicketInfoLabel();
     }
 
     function buildMasterBoard() {

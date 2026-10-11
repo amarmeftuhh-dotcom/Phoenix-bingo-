@@ -3191,13 +3191,16 @@ async function submitManualDeposit() {
     }
 
     function viewPlayerMultipleCards(ticketsData, called) { 
-        document.getElementById('m-called').innerText = "✅ Called: " + called.join(", "); 
+        const calledArr = Array.isArray(called) ? called : [];
+        document.getElementById('m-called').innerText = "✅ Called: " + calledArr.join(", "); 
         let fullHtml = ""; 
-        ticketsData.forEach((ticket, i) => { 
-            fullHtml += `<h4 style="margin:10px 0 5px 0; color:var(--purple);">Ticket #${ticket.id || i+1}</h4><div class="grid-preview">`; 
+        (ticketsData || []).forEach((ticket, i) => { 
+            fullHtml += `<h4 style="margin:10px 0 5px 0; color:var(--purple);">Ticket #${(ticket && ticket.id) || i+1}</h4><div class="grid-preview">`; 
             for(let r=0; r<5; r++) {
                 for(let c=0; c<5; c++) {
-                    fullHtml += `<div class="${called.includes(ticket.grid[c][r]) || (c===2&&r===2) ? "highlight" : ""}">${(c===2&&r===2) ? "FREE" : ticket.grid[c][r]}</div>`; 
+                    let num = (ticket && ticket.grid && ticket.grid[c] && ticket.grid[c][r] !== undefined) ? ticket.grid[c][r] : '';
+                    let isMarked = calledArr.includes(num) || (c===2&&r===2);
+                    fullHtml += `<div class="${isMarked ? "highlight" : ""}">${(c===2&&r===2) ? "FREE" : num}</div>`; 
                 }
             }
             fullHtml += `</div><hr style="border-color: var(--border);">`; 
@@ -3231,7 +3234,7 @@ async function submitManualDeposit() {
             fullHtml += `<h4 style="margin:10px 0 5px 0; color:var(--gold); font-size: 14px;">🏆 ${gObj.name} (Card #${gObj.id})</h4><div class="grid-preview">`; 
             for(let r=0; r<5; r++) { 
                 for(let c=0; c<5; c++) { 
-                    let num = gObj.grid[c][r]; 
+                    let num = (gObj.grid && gObj.grid[c] && gObj.grid[c][r] !== undefined) ? gObj.grid[c][r] : ''; 
                     let isMarked = called.includes(num) || (c===2&&r===2); 
                     fullHtml += `<div class="${isMarked ? "highlight" : ""}">${(c===2&&r===2) ? "FREE" : num}</div>`; 
                 } 

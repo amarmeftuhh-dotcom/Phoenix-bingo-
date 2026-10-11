@@ -1313,6 +1313,7 @@ async function handlePlayerGameHistory(req, res) {
         return res.json({
             success: true,
             history,
+            rounds: history,
             page,
             limit,
             total
@@ -1323,8 +1324,88 @@ async function handlePlayerGameHistory(req, res) {
     }
 }
 
-app.get('/api/user/game-history', handlePlayerGameHistory);
+app.get(['/api/user/game-history', '/api/user/game-history/:phone'], handlePlayerGameHistory);
 app.post('/api/user/game-history', handlePlayerGameHistory);
+
+// Active tickets for the current authenticated player (requires verified Telegram WebApp initData)
+async function handlePlayerActiveTickets(req, res) {
+    try {
+        let initData = req.headers['x-telegram-init-data'] || 
+                       (req.query && req.query.initData) || 
+                       (req.body && req.body.initData);
+
+        const authHeader = req.headers.authorization;
+        if (!initData && authHeader && authHeader.startsWith('Bearer ')) {
+            initData = authHeader.slice(7).trim();
+        }
+
+        if (!initData || typeof initData !== 'string' || !initData.trim()) {
+            return res.status(401).json({
+                success: false,
+                message: 'Unauthorized: Missing Telegram authentication. Raw phone/telegramId parameters are not accepted.'
+            });
+        }
+
+        if (!TELEGRAM_BOT_TOKEN) {
+            return res.status(500).json({
+                success: false,
+                message: 'Telegram authentication is currently unavailable (bot token not configured).'
+            });
+        }
+
+        const verification = verifyTelegramWebAppData(initData.trim(), TELEGRAM_BOT_TOKEN);
+        if (!verification.valid) {
+            return res.status(401).json({
+                success: false,
+                message: `Telegram authentication failed: ${verification.error}`
+            });
+        }
+
+        const verifiedTgId = String(verification.telegramUser.id).trim();
+        const user = await findUserByTgOrPhone(verifiedTgId, null);
+        if (!user || !user.phone) {
+            return res.status(404).json({
+                success: false,
+                message: 'User account not found.'
+            });
+        }
+
+        const cleanPhone = normalizePhoneNumber(user.phone);
+
+        // Authoritative server-side reservation lookup for this authenticated user only
+        let myTickets = [];
+        for (const player of currentGame.players.values()) {
+            const pPhone = normalizePhoneNumber(player.phone);
+            const pTg = player.telegramId ? String(player.telegramId).trim() : '';
+            if (pPhone === cleanPhone || player.phone === user.phone || (pTg && pTg === verifiedTgId)) {
+                myTickets = Array.isArray(player.tickets) ? player.tickets : [];
+                break;
+            }
+        }
+
+        return res.json({
+            success: true,
+            ticketsData: myTickets,
+            myTickets: myTickets,
+            calledNumbers: currentGame.drawnNumbers || []
+        });
+    } catch (err) {
+        console.error('Active tickets error:', err);
+        return res.status(500).json({ success: false, message: 'Failed to retrieve active tickets' });
+    }
+}
+
+app.get(['/api/user/my-active-tickets', '/api/user/my-active-tickets/:phone'], handlePlayerActiveTickets);
+app.post('/api/user/my-active-tickets', handlePlayerActiveTickets);
+
+// Leaderboard route
+app.get('/api/leaderboard', (req, res) => {
+    return res.json({
+        success: true,
+        leaderboard: [],
+        season: { status: 'idle', end: 0 }
+    });
+});
 
 // Admin Game History (POST /api/admin/history)
 app.post('/api/admin/history', async (req, res) => {
@@ -1387,15 +1468,15 @@ app.post('/api/admin/history', async (req, res) => {
 
         const history = docs.map(doc => {
             const winnersArr = Array.isArray(doc.winners) ? doc.winners : (doc.winners ? [doc.winners] : []);
-            const winnerPhone = winnersArr.join(', ');
-            let winnerName = winnersArr[0] || 'Unknown';
+            let winnerPhone = winnersArr.join(', ');
+            let winnerName = (winnersArr && winnersArr[0]) || 'Unknown';
             let winningTicketId = '';
 
             if (Array.isArray(doc.playersData)) {
                 const found = doc.playersData.find(p => winnersArr.includes(p.phone) || winnersArr.includes(p.name));
                 if (found) {
                     winnerName = found.name || winnerName;
-                    if (found.ticketIds && found.ticketIds.length > 0) {
+                    if (Array.isArray(found.ticketIds) && found.ticketIds.length > 0) {
                         winningTicketId = found.ticketIds[0];
                     }
                 }
@@ -1403,10 +1484,12 @@ app.post('/api/admin/history', async (req, res) => {
 
             if (Array.isArray(doc.winnerData) && doc.winnerData.length > 0) {
                 const w0 = doc.winnerData[0];
-                winnerName = w0.name || winnerName;
-                winnerPhone = doc.winnerData.map(w => w.phone).filter(Boolean).join(', ') || winnerPhone;
-                if (w0.ticketIds && w0.ticketIds.length > 0) {
-                    winningTicketId = w0.ticketIds.join(', ');
+                if (w0) {
+                    winnerName = w0.name || winnerName;
+                    winnerPhone = doc.winnerData.map(w => w && w.phone).filter(Boolean).join(', ') || winnerPhone;
+                    if (Array.isArray(w0.ticketIds) && w0.ticketIds.length > 0) {
+                        winningTicketId = w0.ticketIds.join(', ');
+                    }
                 }
             }
 
@@ -1515,7 +1598,7 @@ function getGameStatusPayload() {
         jackpotBoost: 0,
         calledNumbers: currentGame.drawnNumbers || [],
         playersCount: currentGame.players.size,
-        maxTickets: 50,
+        maxTickets: 4,
         bankInfo: {
             tbNum: SUPPORT_PHONE_NUMBER,
             tbName: 'Phoenix Bingo',
@@ -1674,7 +1757,7 @@ async function endGame(winners) {
     }
     currentGame.state = 'ENDED';
     const totalPrize = currentGame.netJackpot || currentGame.totalJackpot || 0;
-    const winnerPhone = (winners && winners[0]) || '';
+    const winnerPhone = (Array.isArray(winners) && winners.length > 0 && winners[0]) || (typeof winners === 'string' ? winners : '');
     let winningTicketId = 'N/A';
     let winningGrid = null;
     let winnerName = winnerPhone || 'Player';
@@ -1684,8 +1767,9 @@ async function endGame(winners) {
         if (winners && (winners.includes(player.phone) || winners.includes(player.telegramId))) {
             winnerName = player.name || winnerName;
             if (Array.isArray(player.tickets) && player.tickets.length > 0) {
-                winningTicketId = player.tickets[0].id;
-                winningGrid = player.tickets[0].grid || null;
+                const t0 = player.tickets[0];
+                winningTicketId = (t0 && t0.id !== undefined) ? t0.id : (t0 || 'N/A');
+                winningGrid = (t0 && t0.grid) || null;
             }
             break;
         }
@@ -1762,6 +1846,20 @@ async function endGame(winners) {
         existingMem.numbers = [...currentGame.drawnNumbers];
         existingMem.winners = winners || [];
         existingMem.winnerData = winnerData;
+    } else {
+        inMemoryGames.unshift({
+            _id: 'game_' + currentGame.gameId,
+            gameId: currentGame.gameId,
+            stake: currentGame.stake,
+            totalJackpot: currentGame.totalJackpot,
+            netJackpot: currentGame.netJackpot,
+            houseCut: Math.max(0, currentGame.totalJackpot - currentGame.netJackpot),
+            status: 'COMPLETED',
+            numbers: [...currentGame.drawnNumbers],
+            winners: winners || [],
+            winnerData: winnerData,
+            createdAt: new Date()
+        });
     }
 
     setTimeout(() => {
