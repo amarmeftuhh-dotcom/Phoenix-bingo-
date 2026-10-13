@@ -510,3 +510,93 @@ module.exports = {
     stripIllegalWinners,
     calculateNetJackpot
 };
+
+const GAME_RULES = Object.freeze({
+    CARD_PRICE,
+    CARD_REG_FEE,
+    CARD_POT_SHARE,
+    MIN_CALLS_FOR_WIN: 4,
+    MIN_JACKPOT_THRESHOLD: 14,
+    MAX_JACKPOT_THRESHOLD: 18,
+    DEFAULT_JACKPOT_THRESHOLD: 16,
+    COUNTDOWN_SECONDS: 40
+});
+
+const FINANCE_LIMITS = Object.freeze({
+    MIN_DEPOSIT: 10,
+    MAX_DEPOSIT: 100000,
+    MIN_WITHDRAWAL: 50,
+    MAX_WITHDRAWAL: 50000,
+    DAILY_WITHDRAWAL_CAP: 100000
+});
+
+const REFERRAL_SYSTEM = Object.freeze({
+    REFERRAL_DAILY_CAP,
+    REFERRAL_IP_DAILY_CAP,
+    REFERRAL_FINGERPRINT_DAILY_CAP,
+    COMMISSION_RATE: 0.05
+});
+
+const BOT_CONSTRAINTS = Object.freeze({
+    DEFAULT_BOT_MIN,
+    DEFAULT_BOT_MAX,
+    DEFAULT_BOT_STEP_SECONDS
+});
+
+const ADMIN_PRIVILEGES = Object.freeze({
+    ROLES: ['admin', 'finance', 'support'],
+    CAN_EDIT_SETTINGS: ['admin'],
+    CAN_PROCESS_FINANCE: ['admin', 'finance']
+});
+
+function calculatePayoutPerWinner(netJackpot, winnerCount) {
+    const pot = Number(netJackpot) || 0;
+    const count = parseInt(winnerCount, 10) || 0;
+    if (count <= 0 || pot <= 0) return 0;
+    return Math.round((pot / count) * 100) / 100;
+}
+
+function calculateReferralCommission(amount, rate = REFERRAL_SYSTEM.COMMISSION_RATE) {
+    const val = Number(amount) || 0;
+    const r = Number(rate) || 0;
+    if (val <= 0 || r <= 0) return 0;
+    return Math.round(val * r * 100) / 100;
+}
+
+function validateWithdrawalLimits(amount, min = FINANCE_LIMITS.MIN_WITHDRAWAL, max = FINANCE_LIMITS.MAX_WITHDRAWAL) {
+    const val = Number(amount);
+    if (!Number.isFinite(val) || isNaN(val)) {
+        return { valid: false, reason: 'INVALID_AMOUNT', message: 'ትክክለኛ ያልሆነ የገንዘብ መጠን (Invalid withdrawal amount)' };
+    }
+    if (val < min) {
+        return { valid: false, reason: 'BELOW_MINIMUM', message: `ዝቅተኛው የማውጣት መጠን ${min} ብር ነው (Minimum withdrawal is ${min} ETB)` };
+    }
+    if (val > max) {
+        return { valid: false, reason: 'EXCEEDS_MAXIMUM', message: `ከፍተኛው የማውጣት መጠን በአንድ ጊዜ ${max} ብር ነው (Maximum withdrawal is ${max} ETB)` };
+    }
+    return { valid: true, amount: val };
+}
+
+function detectFraudPatterns(user, action = {}) {
+    if (!user) return { suspicious: true, reason: 'NO_USER' };
+    const flags = [];
+    if (user.isBanned) flags.push('BANNED_USER');
+    if (user.status === 'suspended') flags.push('SUSPENDED_USER');
+    return {
+        suspicious: flags.length > 0,
+        flags,
+        userPhone: user.phone || ''
+    };
+}
+
+Object.assign(module.exports, {
+    GAME_RULES,
+    FINANCE_LIMITS,
+    REFERRAL_SYSTEM,
+    BOT_CONSTRAINTS,
+    ADMIN_PRIVILEGES,
+    calculatePayoutPerWinner,
+    calculateReferralCommission,
+    validateWithdrawalLimits,
+    detectFraudPatterns
+});
