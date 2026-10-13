@@ -1,0 +1,1 @@
+Fix frontend connection detection, Socket.IO fallback, and CORS for Render backend

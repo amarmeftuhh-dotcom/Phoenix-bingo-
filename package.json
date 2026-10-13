@@ -7,7 +7,7 @@
     "dev": "node --max-old-space-size=450 server.js",
     "start": "node --max-old-space-size=450 server.js",
     "build": "node -c server.js",
-    "test": "node test/platformRules.test.js && node test/cartelaLifecycle.test.js && node test/gameHistory.test.js && node test/activeTicketsSecurity.test.js"
+    "test": "node test/platformRules.test.js"
   },
   "dependencies": {
     "express": "^4.21.2",

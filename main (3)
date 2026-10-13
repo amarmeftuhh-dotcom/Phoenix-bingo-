@@ -1,0 +1,3 @@
+0000000000000000000000000000000000000000 7e84cf23d6cf68c3b7f535dd7d67c74ad2a39d7e root <root@localhost.(none)> 1790517741 +0000	reset: moving to origin/main
+7e84cf23d6cf68c3b7f535dd7d67c74ad2a39d7e 7e84cf23d6cf68c3b7f535dd7d67c74ad2a39d7e root <root@localhost.(none)> 1790517758 +0000	Branch: renamed refs/heads/master to refs/heads/main
+7e84cf23d6cf68c3b7f535dd7d67c74ad2a39d7e cbbd3eede438d74328f3b7ab802c6c223e33b4ce amarmeftuhh-dotcom <amarmeftuhh@gmail.com> 1790517764 +0000	commit: Fix frontend connection detection, Socket.IO fallback, and CORS for Render backend

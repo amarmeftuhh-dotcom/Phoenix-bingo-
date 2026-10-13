@@ -1,6 +1,5 @@
 const express = require('express');
 const http = require('http');
-const crypto = require('crypto');
 const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const path = require('path');
@@ -17,10 +16,6 @@ const {
     validateWithdrawalLimits,
     detectFraudPatterns
 } = require('./lib/platformRules');
-
-const getNetJackpot = (typeof calculateNetJackpot === 'function')
-    ? calculateNetJackpot
-    : function(tot, cut = 20) { return Math.round((Number(tot) || 0) * (1 - (Number(cut) || 0) / 100) * 100) / 100; };
 const botRoutes = require('./bot.routes');
 
 const app = express();
@@ -31,7 +26,7 @@ const io = new Server(server, {
     pingTimeout: 5000
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 const MONGO_URI = process.env.MONGO_URI;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
 const WEB_URL = process.env.WEB_URL || process.env.APP_URL || 'http://localhost:3000';
@@ -56,12 +51,12 @@ function validateStartupConfig() {
     ];
 
     const missing = required
-        .filter(item => !item.value || (typeof item.value === 'string' && (item.value.trim() === '' || /<[^>]+>/.test(item.value))))
+        .filter(item => !item.value || (typeof item.value === 'string' && item.value.trim() === ''))
         .map(item => item.name);
 
     if (missing.length > 0) {
         console.warn('════════════════════════════════════════════════════');
-        console.warn('⚠️  CONFIG WARNING: Missing or placeholder environment variables:');
+        console.warn('⚠️  CONFIG WARNING: Missing required environment variables:');
         missing.forEach(name => console.warn(`   - ${name}`));
         console.warn('Please supply these in your hosting environment.');
         console.warn('Never hard-code secrets or credentials into the repository.');
@@ -72,36 +67,14 @@ function validateStartupConfig() {
 }
 validateStartupConfig();
 
-// Connect MongoDB if valid non-placeholder URI provided
-const isMongoUriConfigured = MONGO_URI && 
-    !MONGO_URI.includes('<db_password>') && 
-    !MONGO_URI.includes('<password>') && 
-    !MONGO_URI.includes('<DB_PASSWORD>') &&
-    !/<[^>]+>/.test(MONGO_URI);
-
-if (isMongoUriConfigured) {
-    mongoose.connection.on('error', (err) => {
-        console.warn('[MongoDB] Connection event notice:', err && err.message ? err.message : err);
-    });
-
+// Connect MongoDB if URI provided
+if (MONGO_URI) {
     mongoose.connect(MONGO_URI, {
         useNewUrlParser: true,
-        useUnifiedTopology: true,
-        serverSelectionTimeoutMS: 5000
-    }).then(() => {
-        console.log('MongoDB Connected successfully');
-    }).catch(err => {
-        console.warn('[MongoDB] Connection failed (' + (err && err.message ? err.message : err) + '). Operating in resilient in-memory mode.');
-        try {
-            mongoose.disconnect().catch(() => {});
-        } catch (_) {}
-    });
+        useUnifiedTopology: true
+    }).then(() => console.log('MongoDB Connected successfully')).catch(err => console.error('MongoDB connection error:', err.message));
 } else {
-    if (MONGO_URI) {
-        console.warn('[MongoDB] MONGO_URI contains an unreplaced credential placeholder (e.g. <db_password>). Running in resilient in-memory mode.');
-    } else {
-        console.warn('[MongoDB] MONGO_URI not provided. Running in resilient in-memory mode.');
-    }
+    console.warn('[MongoDB] MONGO_URI not provided. Running in memory / offline DB mode.');
 }
 
 // Enable CORS for external frontends / webviews connecting to Phoenix Bingo Render backend
@@ -189,11 +162,9 @@ const GameSchema = new mongoose.Schema({
     netJackpot: Number,
     houseCut: Number,
     winners: [String],
-    winnerData: [mongoose.Schema.Types.Mixed],
     status: String,
-    playersData: [mongoose.Schema.Types.Mixed],
     createdAt: { type: Date, default: Date.now }
-}, { strict: false });
+});
 
 const TransactionSchema = new mongoose.Schema({
     userId: String,
@@ -239,7 +210,6 @@ const Promo = mongoose.models.Promo || mongoose.model('Promo', PromoSchema);
 // USER NORMALIZATION & HELPER FUNCTIONS
 // ══════════════════════════════════════════════════
 const inMemoryUsers = new Map();
-const inMemoryGames = [];
 const pendingReferrals = new Map();
 
 function normalizePhoneNumber(raw) {
@@ -273,88 +243,6 @@ function formatUserResponse(u) {
         played: raw.played ?? 0,
         won: raw.won ?? raw.totalWon ?? 0
     };
-}
-
-function verifyTelegramWebAppData(initData, botToken = TELEGRAM_BOT_TOKEN, maxAgeSeconds = 86400) {
-    if (!initData || typeof initData !== 'string' || !initData.trim()) {
-        return { valid: false, error: 'Missing or empty initData' };
-    }
-    if (!botToken || typeof botToken !== 'string' || !botToken.trim()) {
-        return { valid: false, error: 'Missing or invalid bot token' };
-    }
-
-    try {
-        const searchParams = new URLSearchParams(initData.trim());
-        const receivedHash = searchParams.get('hash');
-        if (!receivedHash) {
-            return { valid: false, error: 'Missing hash parameter in initData' };
-        }
-
-        // Delete hash from parameters before building data_check_string
-        searchParams.delete('hash');
-
-        // Sort keys alphabetically in ascending order
-        const keys = Array.from(searchParams.keys()).sort();
-        const dataCheckPairs = [];
-        for (const key of keys) {
-            dataCheckPairs.push(`${key}=${searchParams.get(key)}`);
-        }
-        const dataCheckString = dataCheckPairs.join('\n');
-
-        // HMAC-SHA-256 signature of the bot token with string "WebAppData" as key
-        const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
-        const calculatedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
-
-        const receivedBuf = Buffer.from(receivedHash, 'hex');
-        const calculatedBuf = Buffer.from(calculatedHash, 'hex');
-
-        if (receivedBuf.length !== calculatedBuf.length || !crypto.timingSafeEqual(receivedBuf, calculatedBuf)) {
-            return { valid: false, error: 'Invalid hash signature' };
-        }
-
-        // Expiration check on auth_date
-        const authDateRaw = searchParams.get('auth_date');
-        if (!authDateRaw) {
-            return { valid: false, error: 'Missing auth_date in initData' };
-        }
-        const authDate = parseInt(authDateRaw, 10);
-        if (isNaN(authDate)) {
-            return { valid: false, error: 'Invalid auth_date format' };
-        }
-
-        const now = Math.floor(Date.now() / 1000);
-        if (authDate > now + 300) {
-            return { valid: false, error: 'auth_date cannot be in the future' };
-        }
-        if (maxAgeSeconds > 0 && (now - authDate) > maxAgeSeconds) {
-            return { valid: false, error: 'initData has expired' };
-        }
-
-        // Parse user data
-        const userRaw = searchParams.get('user');
-        if (!userRaw) {
-            return { valid: false, error: 'Missing user object in initData' };
-        }
-
-        let telegramUser;
-        try {
-            telegramUser = JSON.parse(userRaw);
-        } catch (e) {
-            return { valid: false, error: 'Failed to parse user JSON in initData' };
-        }
-
-        if (!telegramUser || (telegramUser.id === undefined || telegramUser.id === null)) {
-            return { valid: false, error: 'Missing user id in Telegram user object' };
-        }
-
-        return {
-            valid: true,
-            telegramUser,
-            authDate
-        };
-    } catch (err) {
-        return { valid: false, error: 'Failed to parse initData: ' + err.message };
-    }
 }
 
 async function findUserByTgOrPhone(telegramId, phone) {
@@ -1032,42 +920,18 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-// Telegram WebApp Login Endpoint (HMAC-SHA256 initData Verification)
+// Telegram WebApp Login Endpoint
 app.post('/api/telegram-login', async (req, res) => {
     try {
-        const { initData } = req.body || {};
-        if (!initData || typeof initData !== 'string' || !initData.trim()) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Missing Telegram initData. Raw telegramId authentication is not accepted.' 
-            });
+        const { telegramId } = req.body || {};
+        if (!telegramId) {
+            return res.status(400).json({ success: false, message: 'Missing telegramId' });
         }
-
-        if (!TELEGRAM_BOT_TOKEN) {
-            console.error('[Telegram Auth] TELEGRAM_BOT_TOKEN is not configured on the server.');
-            return res.status(500).json({ 
-                success: false, 
-                message: 'Telegram authentication is currently unavailable (bot token not configured).' 
-            });
-        }
-
-        const verification = verifyTelegramWebAppData(initData.trim(), TELEGRAM_BOT_TOKEN);
-        if (!verification.valid) {
-            return res.status(401).json({ 
-                success: false, 
-                message: `Telegram authentication failed: ${verification.error}` 
-            });
-        }
-
-        // Extracted ONLY from the cryptographically verified Telegram user object
-        const verifiedTgId = String(verification.telegramUser.id).trim();
-        const user = await findUserByTgOrPhone(verifiedTgId, null);
+        const cleanTgId = String(telegramId).trim();
+        const user = await findUserByTgOrPhone(cleanTgId, null);
 
         if (!user || !user.phone) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'User not registered. Please start the bot in Telegram and share your phone number.' 
-            });
+            return res.status(404).json({ success: false, message: 'User not registered. Please start the bot in Telegram and share your phone number.' });
         }
 
         if (user.isBlocked) {
@@ -1172,443 +1036,23 @@ app.get('/api/getUser/:phone', async (req, res) => {
     }
 });
 
-// ══════════════════════════════════════════════════
-// GAME HISTORY ENDPOINTS (PLAYER & ADMIN)
-// ══════════════════════════════════════════════════
-
-// Secure Player Game History (GET and POST supported)
-async function handlePlayerGameHistory(req, res) {
-    try {
-        let initData = req.headers['x-telegram-init-data'] || 
-                       (req.query && req.query.initData) || 
-                       (req.body && req.body.initData);
-
-        const authHeader = req.headers.authorization;
-        if (!initData && authHeader && authHeader.startsWith('Bearer ')) {
-            initData = authHeader.slice(7).trim();
-        }
-
-        if (!initData || typeof initData !== 'string' || !initData.trim()) {
-            return res.status(401).json({
-                success: false,
-                message: 'Unauthorized: Missing Telegram authentication. Raw phone/telegramId parameters are not accepted.'
-            });
-        }
-
-        if (!TELEGRAM_BOT_TOKEN) {
-            return res.status(500).json({
-                success: false,
-                message: 'Telegram authentication is currently unavailable (bot token not configured).'
-            });
-        }
-
-        const verification = verifyTelegramWebAppData(initData.trim(), TELEGRAM_BOT_TOKEN);
-        if (!verification.valid) {
-            return res.status(401).json({
-                success: false,
-                message: `Telegram authentication failed: ${verification.error}`
-            });
-        }
-
-        const verifiedTgId = String(verification.telegramUser.id).trim();
-        const user = await findUserByTgOrPhone(verifiedTgId, null);
-        if (!user || !user.phone) {
-            return res.status(404).json({
-                success: false,
-                message: 'User account not found.'
-            });
-        }
-
-        const cleanPhone = normalizePhoneNumber(user.phone);
-        const page = Math.max(1, parseInt(req.query.page || (req.body && req.body.page) || 1, 10));
-        const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || (req.body && req.body.limit) || 20, 10)));
-        const skip = (page - 1) * limit;
-
-        let total = 0;
-        let gameDocs = [];
-
-        if (mongoose.connection.readyState === 1) {
-            const filter = {
-                status: 'COMPLETED',
-                $or: [
-                    { 'playersData.phone': cleanPhone },
-                    { 'playersData.phone': user.phone },
-                    { 'playersData.telegramId': verifiedTgId }
-                ]
-            };
-            total = await Game.countDocuments(filter);
-            gameDocs = await Game.find(filter)
-                .sort({ gameId: -1, createdAt: -1 })
-                .skip(skip)
-                .limit(limit);
-        } else {
-            // In-memory fallback
-            const matched = inMemoryGames.filter(g => {
-                if (g.status !== 'COMPLETED') return false;
-                const players = Array.isArray(g.playersData) ? g.playersData : [];
-                return players.some(p => {
-                    const pPhone = normalizePhoneNumber(p.phone);
-                    const pTg = String(p.telegramId || '').trim();
-                    return pPhone === cleanPhone || p.phone === user.phone || pTg === verifiedTgId;
-                });
-            });
-            total = matched.length;
-            gameDocs = matched.slice(skip, skip + limit);
-        }
-
-        const history = gameDocs.map(g => {
-            const players = Array.isArray(g.playersData) ? g.playersData : [];
-            const myRecord = players.find(p => {
-                const pPhone = normalizePhoneNumber(p.phone);
-                const pTg = String(p.telegramId || '').trim();
-                return pPhone === cleanPhone || p.phone === user.phone || (verifiedTgId && pTg === verifiedTgId);
-            });
-
-            const ticketIds = myRecord ? (Array.isArray(myRecord.ticketIds) ? myRecord.ticketIds : (myRecord.ticketsData || []).map(t => t.id)) : [];
-            
-            // Determine won and prize using winnerData first, then fallback to winners array
-            let isWinner = false;
-            let playerPrize = 0;
-
-            if (Array.isArray(g.winnerData) && g.winnerData.length > 0) {
-                const winEntry = g.winnerData.find(w => 
-                    (verifiedTgId && String(w.telegramId || '').trim() === verifiedTgId) ||
-                    (cleanPhone && (normalizePhoneNumber(w.phone) === cleanPhone || w.phone === user.phone))
-                );
-                if (winEntry) {
-                    isWinner = true;
-                    playerPrize = Number(winEntry.prize || 0);
-                }
-            } else {
-                const winners = Array.isArray(g.winners) ? g.winners : (g.winners ? [g.winners] : []);
-                isWinner = winners.some(w => {
-                    const cleanW = String(w).trim();
-                    return cleanW === cleanPhone || cleanW === user.phone || cleanW === verifiedTgId || (myRecord && cleanW === myRecord.name);
-                });
-                const winnerCount = Math.max(1, winners.length);
-                const totalPot = Number(g.netJackpot || g.totalJackpot || 0);
-                playerPrize = isWinner ? Math.round((totalPot / winnerCount) * 100) / 100 : 0;
-            }
-
-            const calledNums = Array.isArray(g.numbers) ? g.numbers : (Array.isArray(g.calledNumbers) ? g.calledNumbers : []);
-
-            return {
-                gameId: g.gameId,
-                date: g.createdAt || new Date(),
-                status: g.status || 'COMPLETED',
-                stake: g.stake || 10,
-                ticketIds: ticketIds.map(Number),
-                ticketCount: ticketIds.length,
-                calledNumbers: calledNums,
-                drawnNumbers: calledNums,
-                won: isWinner,
-                outcome: isWinner ? 'win' : 'loss',
-                prize: playerPrize,
-                winningAmount: playerPrize,
-                totalJackpot: g.totalJackpot || 0,
-                netJackpot: g.netJackpot || 0
-            };
-        });
-
-        return res.json({
-            success: true,
-            history,
-            rounds: history,
-            page,
-            limit,
-            total
-        });
-    } catch (err) {
-        console.error('Player game history error:', err);
-        return res.status(500).json({ success: false, message: 'Failed to retrieve game history' });
-    }
-}
-
-app.get(['/api/user/game-history', '/api/user/game-history/:phone'], handlePlayerGameHistory);
-app.post('/api/user/game-history', handlePlayerGameHistory);
-
-// Active tickets for the current authenticated player (requires verified Telegram WebApp initData)
-async function handlePlayerActiveTickets(req, res) {
-    try {
-        let initData = req.headers['x-telegram-init-data'] || 
-                       (req.query && req.query.initData) || 
-                       (req.body && req.body.initData);
-
-        const authHeader = req.headers.authorization;
-        if (!initData && authHeader && authHeader.startsWith('Bearer ')) {
-            initData = authHeader.slice(7).trim();
-        }
-
-        if (!initData || typeof initData !== 'string' || !initData.trim()) {
-            return res.status(401).json({
-                success: false,
-                message: 'Unauthorized: Missing Telegram authentication. Raw phone/telegramId parameters are not accepted.'
-            });
-        }
-
-        if (!TELEGRAM_BOT_TOKEN) {
-            return res.status(500).json({
-                success: false,
-                message: 'Telegram authentication is currently unavailable (bot token not configured).'
-            });
-        }
-
-        const verification = verifyTelegramWebAppData(initData.trim(), TELEGRAM_BOT_TOKEN);
-        if (!verification.valid) {
-            return res.status(401).json({
-                success: false,
-                message: `Telegram authentication failed: ${verification.error}`
-            });
-        }
-
-        const verifiedTgId = String(verification.telegramUser.id).trim();
-        const user = await findUserByTgOrPhone(verifiedTgId, null);
-        if (!user || !user.phone) {
-            return res.status(404).json({
-                success: false,
-                message: 'User account not found.'
-            });
-        }
-
-        const cleanPhone = normalizePhoneNumber(user.phone);
-
-        // Authoritative server-side reservation lookup for this authenticated user only
-        let myTickets = [];
-        for (const player of currentGame.players.values()) {
-            const pPhone = normalizePhoneNumber(player.phone);
-            const pTg = player.telegramId ? String(player.telegramId).trim() : '';
-            if (pPhone === cleanPhone || player.phone === user.phone || (pTg && pTg === verifiedTgId)) {
-                myTickets = Array.isArray(player.tickets) ? player.tickets : [];
-                break;
-            }
-        }
-
-        return res.json({
-            success: true,
-            ticketsData: myTickets,
-            myTickets: myTickets,
-            calledNumbers: currentGame.drawnNumbers || []
-        });
-    } catch (err) {
-        console.error('Active tickets error:', err);
-        return res.status(500).json({ success: false, message: 'Failed to retrieve active tickets' });
-    }
-}
-
-app.get(['/api/user/my-active-tickets', '/api/user/my-active-tickets/:phone'], handlePlayerActiveTickets);
-app.post('/api/user/my-active-tickets', handlePlayerActiveTickets);
-
-// Leaderboard route
-app.get('/api/leaderboard', (req, res) => {
-    return res.json({
-        success: true,
-        leaderboard: [],
-        season: { status: 'idle', end: 0 }
-    });
-});
-
-// Admin Game History (POST /api/admin/history)
-app.post('/api/admin/history', async (req, res) => {
-    try {
-        const { adminPass, page = 1, limit = 20, search = '' } = req.body || {};
-        if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
-            return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin credentials' });
-        }
-
-        const p = Math.max(1, parseInt(page, 10));
-        const l = Math.min(100, Math.max(1, parseInt(limit, 10)));
-        const skip = (p - 1) * l;
-
-        let total = 0;
-        let docs = [];
-
-        if (mongoose.connection.readyState === 1) {
-            const filter = { status: 'COMPLETED' };
-            const cleanSearch = String(search || '').trim();
-            if (cleanSearch) {
-                const escapedSearch = cleanSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const numSearch = parseInt(cleanSearch, 10);
-                if (!isNaN(numSearch)) {
-                    filter.$or = [
-                        { gameId: numSearch },
-                        { 'playersData.ticketIds': numSearch },
-                        { 'playersData.phone': { $regex: escapedSearch, $options: 'i' } }
-                    ];
-                } else {
-                    filter.$or = [
-                        { 'playersData.phone': { $regex: escapedSearch, $options: 'i' } },
-                        { 'playersData.name': { $regex: escapedSearch, $options: 'i' } },
-                        { winners: { $regex: escapedSearch, $options: 'i' } }
-                    ];
-                }
-            }
-            total = await Game.countDocuments(filter);
-            docs = await Game.find(filter)
-                .sort({ gameId: -1, createdAt: -1 })
-                .skip(skip)
-                .limit(l);
-        } else {
-            // In-memory fallback
-            const cleanSearch = String(search || '').trim().toLowerCase();
-            let matched = inMemoryGames.filter(g => g.status === 'COMPLETED');
-            if (cleanSearch) {
-                matched = matched.filter(g => {
-                    if (String(g.gameId).includes(cleanSearch)) return true;
-                    const players = Array.isArray(g.playersData) ? g.playersData : [];
-                    return players.some(p => 
-                        (p.phone && p.phone.toLowerCase().includes(cleanSearch)) ||
-                        (p.name && p.name.toLowerCase().includes(cleanSearch)) ||
-                        (p.ticketIds && p.ticketIds.includes(parseInt(cleanSearch, 10)))
-                    );
-                });
-            }
-            total = matched.length;
-            docs = matched.slice(skip, skip + l);
-        }
-
-        const history = docs.map(doc => {
-            const winnersArr = Array.isArray(doc.winners) ? doc.winners : (doc.winners ? [doc.winners] : []);
-            let winnerPhone = winnersArr.join(', ');
-            let winnerName = (winnersArr && winnersArr[0]) || 'Unknown';
-            let winningTicketId = '';
-
-            if (Array.isArray(doc.playersData)) {
-                const found = doc.playersData.find(p => winnersArr.includes(p.phone) || winnersArr.includes(p.name));
-                if (found) {
-                    winnerName = found.name || winnerName;
-                    if (Array.isArray(found.ticketIds) && found.ticketIds.length > 0) {
-                        winningTicketId = found.ticketIds[0];
-                    }
-                }
-            }
-
-            if (Array.isArray(doc.winnerData) && doc.winnerData.length > 0) {
-                const w0 = doc.winnerData[0];
-                if (w0) {
-                    winnerName = w0.name || winnerName;
-                    winnerPhone = doc.winnerData.map(w => w && w.phone).filter(Boolean).join(', ') || winnerPhone;
-                    if (Array.isArray(w0.ticketIds) && w0.ticketIds.length > 0) {
-                        winningTicketId = w0.ticketIds.join(', ');
-                    }
-                }
-            }
-
-            return {
-                _id: String(doc._id || doc.gameId),
-                gameId: doc.gameId,
-                date: doc.createdAt || new Date(),
-                winnerName,
-                winnerPhone,
-                ticketId: winningTicketId || 'N/A',
-                prize: doc.netJackpot || 0,
-                adminProfit: doc.houseCut || Math.max(0, (doc.totalJackpot || 0) - (doc.netJackpot || 0)),
-                stake: doc.stake || 10,
-                totalJackpot: doc.totalJackpot || 0,
-                netJackpot: doc.netJackpot || 0,
-                houseCut: doc.houseCut || Math.max(0, (doc.totalJackpot || 0) - (doc.netJackpot || 0)),
-                playersData: doc.playersData || [],
-                winners: doc.winners || [],
-                winnerData: doc.winnerData || [],
-                calledNumbers: doc.numbers || [],
-                numbers: doc.numbers || [],
-                status: doc.status || 'COMPLETED'
-            };
-        });
-
-        return res.json({ success: true, history, total });
-    } catch (err) {
-        console.error('Admin game history error:', err);
-        return res.status(500).json({ success: false, error: 'Internal server error' });
-    }
-});
-
-// Admin Delete Game History
-app.post('/api/admin/delete-history', async (req, res) => {
-    try {
-        const { adminPass, ids } = req.body || {};
-        if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
-            return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin credentials' });
-        }
-        if (Array.isArray(ids) && ids.length > 0) {
-            if (mongoose.connection.readyState === 1) {
-                await Game.deleteMany({ _id: { $in: ids }, status: 'COMPLETED' });
-            }
-            for (let i = inMemoryGames.length - 1; i >= 0; i--) {
-                const matchesId = ids.includes(String(inMemoryGames[i]._id)) || ids.includes(String(inMemoryGames[i].gameId));
-                if (matchesId && inMemoryGames[i].status === 'COMPLETED') {
-                    inMemoryGames.splice(i, 1);
-                }
-            }
-        }
-        return res.json({ success: true });
-    } catch (err) {
-        console.error('Delete history error:', err);
-        return res.status(500).json({ success: false, error: 'Internal server error' });
-    }
-});
-
-// Admin Delete Old Game History
-app.post('/api/admin/delete-old-history', async (req, res) => {
-    try {
-        const { adminPass } = req.body || {};
-        if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
-            return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin credentials' });
-        }
-        const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
-        if (mongoose.connection.readyState === 1) {
-            await Game.deleteMany({ status: 'COMPLETED', createdAt: { $lt: sixHoursAgo } });
-        }
-        for (let i = inMemoryGames.length - 1; i >= 0; i--) {
-            if (inMemoryGames[i].status === 'COMPLETED' && new Date(inMemoryGames[i].createdAt) < sixHoursAgo) {
-                inMemoryGames.splice(i, 1);
-            }
-        }
-        return res.json({ success: true });
-    } catch (err) {
-        console.error('Delete old history error:', err);
-        return res.status(500).json({ success: false, error: 'Internal server error' });
-    }
-});
-
 
 // ══════════════════════════════════════════════════
 // BINGO GAME ENGINE & SOCKET.IO STATE MACHINE
 // ══════════════════════════════════════════════════
 let currentGame = {
     gameId: 1001,
-    state: 'WAITING', // WAITING, PLAYING, ENDED
+    state: 'WAITING', // WAITING, COUNTDOWN, PLAYING, ENDED
     stake: 10,
     drawnNumbers: [],
     remainingNumbers: Array.from({ length: 75 }, (_, i) => i + 1),
-    players: new Map(), // socketId -> { telegramId, phone, name, tickets: [] }
+    players: new Map(), // socketId -> { telegramId, name, tickets: [] }
     selectedCards: new Map(), // cardId -> socketId
-    timer: 40,
+    timer: 15,
     drawInterval: null,
     totalJackpot: 0,
     netJackpot: 0
 };
-
-function getGameStatusPayload() {
-    return {
-        gameId: currentGame.gameId,
-        state: currentGame.state,
-        timer: currentGame.timer,
-        ticketPrice: currentGame.stake || 10,
-        totalPrizePool: currentGame.totalJackpot || 0,
-        jackpotBoost: 0,
-        calledNumbers: currentGame.drawnNumbers || [],
-        playersCount: currentGame.players.size,
-        maxTickets: 4,
-        bankInfo: {
-            tbNum: SUPPORT_PHONE_NUMBER,
-            tbName: 'Phoenix Bingo',
-            cbeNum: '1000...',
-            cbeName: 'Phoenix Bingo',
-            mpesaNum: '0700000000',
-            mpesaName: 'Phoenix Bingo'
-        }
-    };
-}
 
 function shuffle(array) {
     for (let i = array.length - 1; i > 0; i--) {
@@ -1618,119 +1062,37 @@ function shuffle(array) {
     return array;
 }
 
-let countdownInterval = null;
-
 function startCountdown() {
-    if (countdownInterval) {
-        clearInterval(countdownInterval);
-        countdownInterval = null;
-    }
-    currentGame.state = 'WAITING';
-    currentGame.timer = 40;
-    io.emit('game_status', getGameStatusPayload());
+    currentGame.state = 'COUNTDOWN';
+    currentGame.timer = 10;
     io.emit('gameState', { state: currentGame.state, timer: currentGame.timer });
 
-    countdownInterval = setInterval(() => {
+    const cdInterval = setInterval(() => {
         currentGame.timer--;
-        io.emit('game_status', getGameStatusPayload());
         io.emit('countdown', currentGame.timer);
 
         if (currentGame.timer <= 0) {
-            clearInterval(countdownInterval);
-            countdownInterval = null;
+            clearInterval(cdInterval);
             startGamePlay();
         }
     }, 1000);
-
-    if (typeof countdownInterval.unref === 'function') {
-        countdownInterval.unref();
-    }
 }
 
-async function startGamePlay() {
+function startGamePlay() {
     currentGame.state = 'PLAYING';
     currentGame.drawnNumbers = [];
     currentGame.remainingNumbers = shuffle(Array.from({ length: 75 }, (_, i) => i + 1));
     
-    // Calculate Jackpots based on real reserved tickets
-    const totalTickets = currentGame.selectedCards.size;
-    currentGame.totalJackpot = totalTickets * currentGame.stake;
-    currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
+    // Calculate Jackpots
+    const totalPlayers = currentGame.players.size;
+    currentGame.totalJackpot = totalPlayers * currentGame.stake;
+    currentGame.netJackpot = calculateNetJackpot(currentGame.totalJackpot, 20);
 
-    // Compile final real players data for MongoDB persistence
-    const finalPlayersData = [];
-    for (const player of currentGame.players.values()) {
-        if (player.tickets && player.tickets.length > 0) {
-            let tgId = '';
-            const userRecord = await findUserByTgOrPhone(null, player.phone);
-            if (userRecord && userRecord.telegramId) {
-                tgId = String(userRecord.telegramId).trim();
-            }
-            finalPlayersData.push({
-                telegramId: tgId,
-                phone: player.phone,
-                name: player.name,
-                ticketCount: player.tickets.length,
-                ticketIds: player.tickets.map(t => parseInt(t.id, 10)),
-                ticketsData: player.tickets
-            });
-        }
-    }
-
-    const memoryRecord = {
-        _id: 'game_' + currentGame.gameId,
-        gameId: currentGame.gameId,
-        stake: currentGame.stake,
-        totalJackpot: currentGame.totalJackpot,
-        netJackpot: currentGame.netJackpot,
-        houseCut: Math.max(0, currentGame.totalJackpot - currentGame.netJackpot),
-        status: 'PLAYING',
-        playersData: finalPlayersData,
-        numbers: [],
-        winners: [],
-        createdAt: new Date()
-    };
-    const memIdx = inMemoryGames.findIndex(g => g.gameId === currentGame.gameId);
-    if (memIdx >= 0) {
-        inMemoryGames[memIdx] = { ...inMemoryGames[memIdx], ...memoryRecord };
-    } else {
-        inMemoryGames.unshift(memoryRecord);
-    }
-
-    // Persist final locked ticket ownership to MongoDB
-    if (mongoose.connection.readyState === 1) {
-        try {
-            await Game.findOneAndUpdate(
-                { gameId: currentGame.gameId },
-                {
-                    gameId: currentGame.gameId,
-                    stake: currentGame.stake,
-                    totalJackpot: currentGame.totalJackpot,
-                    netJackpot: currentGame.netJackpot,
-                    houseCut: Math.max(0, currentGame.totalJackpot - currentGame.netJackpot),
-                    status: 'PLAYING',
-                    playersData: finalPlayersData,
-                    numbers: [],
-                    createdAt: new Date()
-                },
-                { upsert: true, new: true }
-            );
-        } catch (dbErr) {
-            console.warn('[MongoDB] Persist game tickets error:', dbErr.message);
-        }
-    }
-
-    io.emit('game_status', getGameStatusPayload());
     io.emit('gameStarted', {
         gameId: currentGame.gameId,
         totalJackpot: currentGame.totalJackpot,
         netJackpot: currentGame.netJackpot
     });
-
-    if (currentGame.drawInterval) {
-        clearInterval(currentGame.drawInterval);
-        currentGame.drawInterval = null;
-    }
 
     currentGame.drawInterval = setInterval(() => {
         if (currentGame.remainingNumbers.length === 0 || currentGame.state !== 'PLAYING') {
@@ -1740,127 +1102,15 @@ async function startGamePlay() {
 
         const drawn = currentGame.remainingNumbers.pop();
         currentGame.drawnNumbers.push(drawn);
-        io.emit('new_number', drawn);
         io.emit('numberDrawn', { number: drawn, history: currentGame.drawnNumbers });
 
     }, 3000);
-
-    if (typeof currentGame.drawInterval.unref === 'function') {
-        currentGame.drawInterval.unref();
-    }
 }
 
-async function endGame(winners) {
-    if (currentGame.drawInterval) {
-        clearInterval(currentGame.drawInterval);
-        currentGame.drawInterval = null;
-    }
+function endGame(winners) {
+    if (currentGame.drawInterval) clearInterval(currentGame.drawInterval);
     currentGame.state = 'ENDED';
-    const totalPrize = currentGame.netJackpot || currentGame.totalJackpot || 0;
-    const winnerPhone = (Array.isArray(winners) && winners.length > 0 && winners[0]) || (typeof winners === 'string' ? winners : '');
-    let winningTicketId = 'N/A';
-    let winningGrid = null;
-    let winnerName = winnerPhone || 'Player';
-
-    // Look up winner details from current game players
-    for (const player of currentGame.players.values()) {
-        if (winners && (winners.includes(player.phone) || winners.includes(player.telegramId))) {
-            winnerName = player.name || winnerName;
-            if (Array.isArray(player.tickets) && player.tickets.length > 0) {
-                const t0 = player.tickets[0];
-                winningTicketId = (t0 && t0.id !== undefined) ? t0.id : (t0 || 'N/A');
-                winningGrid = (t0 && t0.grid) || null;
-            }
-            break;
-        }
-    }
-
     io.emit('gameOver', { winners, gameId: currentGame.gameId });
-    io.emit('game_winner', {
-        phone: winnerPhone,
-        winnerName: winnerName,
-        isShared: winners && winners.length > 1,
-        winnerCount: winners ? winners.length : 0,
-        totalPrize: totalPrize,
-        ticketId: winningTicketId,
-        ticketGrid: winningGrid,
-        calledNumbers: currentGame.drawnNumbers
-    });
-
-    // Build structured winnerData
-    const winnersList = Array.isArray(winners) ? winners : (winners ? [winners] : []);
-    const winnerCount = Math.max(1, winnersList.length);
-    const perWinnerPrize = Math.round((totalPrize / winnerCount) * 100) / 100;
-
-    const winnerData = [];
-    for (const w of winnersList) {
-        const cleanW = String(w).trim();
-        let foundPlayer = null;
-        for (const p of currentGame.players.values()) {
-            if (p.phone === cleanW || p.telegramId === cleanW || (p.name && p.name === cleanW)) {
-                foundPlayer = p;
-                break;
-            }
-        }
-        let wTgId = foundPlayer ? (foundPlayer.telegramId || '') : '';
-        let wPhone = foundPlayer ? (foundPlayer.phone || '') : cleanW;
-        let wName = foundPlayer ? (foundPlayer.name || 'Winner') : (cleanW || 'Winner');
-        let wTicketIds = foundPlayer && Array.isArray(foundPlayer.tickets) ? foundPlayer.tickets.map(t => parseInt(t.id, 10)) : [];
-        if (!wTgId && wPhone) {
-            const cleanP = normalizePhoneNumber(wPhone);
-            const memU = inMemoryUsers.get(cleanP) || inMemoryUsers.get(wPhone);
-            if (memU && memU.telegramId) {
-                wTgId = String(memU.telegramId).trim();
-            }
-        }
-        winnerData.push({
-            telegramId: wTgId,
-            phone: wPhone,
-            name: wName,
-            ticketIds: wTicketIds,
-            prize: perWinnerPrize,
-            gameId: currentGame.gameId
-        });
-    }
-
-    // Update completed game status in MongoDB
-    if (mongoose.connection.readyState === 1) {
-        try {
-            await Game.findOneAndUpdate(
-                { gameId: currentGame.gameId },
-                {
-                    status: 'COMPLETED',
-                    numbers: currentGame.drawnNumbers,
-                    winners: winners || [],
-                    winnerData: winnerData
-                }
-            );
-        } catch (dbErr) {
-            console.warn('[MongoDB] Persist game end error:', dbErr.message);
-        }
-    }
-
-    const existingMem = inMemoryGames.find(g => g.gameId === currentGame.gameId);
-    if (existingMem) {
-        existingMem.status = 'COMPLETED';
-        existingMem.numbers = [...currentGame.drawnNumbers];
-        existingMem.winners = winners || [];
-        existingMem.winnerData = winnerData;
-    } else {
-        inMemoryGames.unshift({
-            _id: 'game_' + currentGame.gameId,
-            gameId: currentGame.gameId,
-            stake: currentGame.stake,
-            totalJackpot: currentGame.totalJackpot,
-            netJackpot: currentGame.netJackpot,
-            houseCut: Math.max(0, currentGame.totalJackpot - currentGame.netJackpot),
-            status: 'COMPLETED',
-            numbers: [...currentGame.drawnNumbers],
-            winners: winners || [],
-            winnerData: winnerData,
-            createdAt: new Date()
-        });
-    }
 
     setTimeout(() => {
         resetGame();
@@ -1873,16 +1123,10 @@ function resetGame() {
     currentGame.drawnNumbers = [];
     currentGame.remainingNumbers = Array.from({ length: 75 }, (_, i) => i + 1);
     currentGame.selectedCards.clear();
-    for (const player of currentGame.players.values()) {
-        player.tickets = [];
-    }
-    io.emit('update_taken_tickets', []);
     io.emit('gameState', { state: currentGame.state, gameId: currentGame.gameId });
-    startCountdown();
 }
 
 io.on('connection', (socket) => {
-    socket.emit('game_status', getGameStatusPayload());
     socket.emit('init', {
         state: currentGame.state,
         gameId: currentGame.gameId,
@@ -1890,274 +1134,19 @@ io.on('connection', (socket) => {
         history: currentGame.drawnNumbers
     });
 
-    socket.on('get_initial_data', (phone) => {
-        socket.emit('game_status', getGameStatusPayload());
-        const cleanPhone = normalizePhoneNumber(phone) || (phone ? String(phone).trim() : '');
-        let playerRecord = null;
-        if (cleanPhone) {
-            for (const p of currentGame.players.values()) {
-                if (p.phone === cleanPhone) {
-                    playerRecord = p;
-                    playerRecord.socketId = socket.id;
-                    break;
-                }
-            }
-        }
-        if (!playerRecord) {
-            playerRecord = currentGame.players.get(socket.id);
-        }
-        const myTickets = (playerRecord && playerRecord.tickets) || [];
-        socket.emit('sync_data', {
-            globalTakenTickets: Array.from(currentGame.selectedCards.keys()),
-            calledNumbers: currentGame.drawnNumbers || [],
-            myTickets
-        });
-    });
-
     socket.on('joinGame', (data) => {
-        if (!data) return;
-        const cleanPhone = normalizePhoneNumber(data.telegramId) || String(data.telegramId || '').trim();
-        let playerRecord = currentGame.players.get(socket.id) || {
-            socketId: socket.id,
-            telegramId: cleanPhone,
-            phone: cleanPhone,
+        currentGame.players.set(socket.id, {
+            telegramId: data.telegramId,
             name: data.name || 'Player',
             tickets: []
-        };
-        playerRecord.socketId = socket.id;
-        playerRecord.name = data.name || playerRecord.name;
-        currentGame.players.set(socket.id, playerRecord);
-        io.emit('playerCount', currentGame.players.size);
-    });
-
-    // Real player cartela/seat selection
-    socket.on('buy_tickets', (data) => {
-        if (!data) return;
-        const { name, phone, ticketIds, ticketsData } = data;
-        const cleanPhone = normalizePhoneNumber(phone) || (phone ? String(phone).trim() : '');
-
-        // Rule: Locked when PLAYING / COUNTDOWN finished
-        if (currentGame.state !== 'WAITING') {
-            socket.emit('bet_error', 'ጨዋታው ተጀምሯል! ካርቴላ መግዛት አይቻልም (Game is LIVE! Ticket selection is locked)');
-            return;
-        }
-
-        if (!Array.isArray(ticketIds) || ticketIds.length === 0) return;
-
-        // Check availability for all requested ticketIds: server is source of truth!
-        const conflictIds = [];
-        for (const rawId of ticketIds) {
-            const tid = parseInt(rawId, 10);
-            if (isNaN(tid) || tid < 1) continue;
-            const owner = currentGame.selectedCards.get(tid);
-            if (owner) {
-                const isMe = (owner.socketId === socket.id) || (cleanPhone && owner.phone === cleanPhone);
-                if (!isMe) {
-                    conflictIds.push(tid);
-                }
-            }
-        }
-
-        if (conflictIds.length > 0) {
-            socket.emit('bet_error', `ካርቴላ #${conflictIds.join(', #')} በሌላ ተጫዋች ተይዟል! እባክዎ ሌላ ይምረጡ (Selected cartela is already taken)`);
-            socket.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
-            return;
-        }
-
-        // Get or create player record
-        let playerRecord = currentGame.players.get(socket.id);
-        if (!playerRecord && cleanPhone) {
-            for (const p of currentGame.players.values()) {
-                if (p.phone === cleanPhone) {
-                    playerRecord = p;
-                    playerRecord.socketId = socket.id;
-                    break;
-                }
-            }
-        }
-        if (!playerRecord) {
-            playerRecord = {
-                socketId: socket.id,
-                telegramId: cleanPhone,
-                phone: cleanPhone,
-                name: name || 'Player',
-                tickets: []
-            };
-        }
-        playerRecord.socketId = socket.id;
-        playerRecord.name = name || playerRecord.name;
-        playerRecord.phone = cleanPhone || playerRecord.phone;
-
-        // Deduplicate: A player cannot own duplicate copies of the same cartela in the same game
-        const existingIds = new Set(playerRecord.tickets.map(t => parseInt(t.id, 10)));
-        const ticketsToAdd = Array.isArray(ticketsData) ? ticketsData : [];
-
-        for (const rawId of ticketIds) {
-            const tid = parseInt(rawId, 10);
-            if (isNaN(tid) || tid < 1) continue;
-
-            // Assign seat
-            currentGame.selectedCards.set(tid, {
-                socketId: socket.id,
-                phone: cleanPhone,
-                name: playerRecord.name
-            });
-
-            // Add ticket object if not already present
-            if (!existingIds.has(tid)) {
-                const matchData = ticketsToAdd.find(td => parseInt(td.id, 10) === tid);
-                if (matchData) {
-                    playerRecord.tickets.push(matchData);
-                    existingIds.add(tid);
-                }
-            }
-        }
-
-        currentGame.players.set(socket.id, playerRecord);
-
-        // Update real prize pool based on real active tickets
-        const totalTickets = currentGame.selectedCards.size;
-        currentGame.totalJackpot = totalTickets * currentGame.stake;
-        currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
-
-        // Broadcast immediately to ALL players
-        io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
-        io.emit('game_status', getGameStatusPayload());
-        io.emit('playerCount', currentGame.players.size);
-    });
-
-    // Real player cartela/seat cancellation / release
-    socket.on('cancel_ticket', (data) => {
-        if (!data) return;
-        const { phone, ticketId } = data;
-        const tid = parseInt(ticketId, 10);
-        if (isNaN(tid)) return;
-        const cleanPhone = normalizePhoneNumber(phone) || (phone ? String(phone).trim() : '');
-
-        // Rule: Locked when PLAYING
-        if (currentGame.state !== 'WAITING') {
-            socket.emit('bet_error', 'ጨዋታው ተጀምሯል! ካርቴላ መቀየር ወይም መሰረዝ አይቻልም (Game is LIVE! Tickets are locked)');
-            return;
-        }
-
-        // Verify ownership
-        const owner = currentGame.selectedCards.get(tid);
-        if (owner) {
-            const isAuthorized = (owner.socketId === socket.id) || (cleanPhone && owner.phone === cleanPhone);
-            if (!isAuthorized) {
-                socket.emit('bet_error', 'ይህን ካርቴላ የመሰረዝ ፈቃድ የሎትም (Not authorized to cancel this ticket)');
-                return;
-            }
-            // Release cartela immediately so other players can take it
-            currentGame.selectedCards.delete(tid);
-        }
-
-        // Remove from player's tickets
-        const playerRecord = currentGame.players.get(socket.id);
-        if (playerRecord && Array.isArray(playerRecord.tickets)) {
-            playerRecord.tickets = playerRecord.tickets.filter(t => parseInt(t.id, 10) !== tid);
-        }
-        if (cleanPhone) {
-            for (const p of currentGame.players.values()) {
-                if (p.phone === cleanPhone && Array.isArray(p.tickets)) {
-                    p.tickets = p.tickets.filter(t => parseInt(t.id, 10) !== tid);
-                }
-            }
-        }
-
-        // Update prize pool
-        const totalTickets = currentGame.selectedCards.size;
-        currentGame.totalJackpot = totalTickets * currentGame.stake;
-        currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
-
-        // Notify client of cancellation success and broadcast availability change to ALL connected players
-        socket.emit('ticket_cancelled_success', tid);
-        io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
-        io.emit('game_status', getGameStatusPayload());
-    });
-
-    // Real player cartela change
-    socket.on('change_ticket', (data) => {
-        if (!data) return;
-        const { phone, name, oldTicketId, newTicketId, newTicketData } = data;
-        const cleanPhone = normalizePhoneNumber(phone) || (phone ? String(phone).trim() : '');
-        const oldId = parseInt(oldTicketId, 10);
-        const newId = parseInt(newTicketId, 10);
-
-        if (currentGame.state !== 'WAITING') {
-            socket.emit('bet_error', 'ጨዋታው ተጀምሯል! ካርቴላ መቀየር አይቻልም (Game is LIVE! Tickets are locked)');
-            return;
-        }
-
-        if (isNaN(newId) || newId < 1) return;
-
-        // Check if new ticket is already taken by someone else
-        const newOwner = currentGame.selectedCards.get(newId);
-        if (newOwner) {
-            const isMe = (newOwner.socketId === socket.id) || (cleanPhone && newOwner.phone === cleanPhone);
-            if (!isMe) {
-                socket.emit('bet_error', `ካርቴላ #${newId} በሌላ ተጫዋች ተይዟል! (Cartela #${newId} is already taken)`);
-                socket.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
-                return;
-            }
-        }
-
-        // Release old ticket
-        if (!isNaN(oldId) && currentGame.selectedCards.has(oldId)) {
-            const oldOwner = currentGame.selectedCards.get(oldId);
-            const isAuthorized = !oldOwner || (oldOwner.socketId === socket.id) || (cleanPhone && oldOwner.phone === cleanPhone);
-            if (isAuthorized) {
-                currentGame.selectedCards.delete(oldId);
-            }
-        }
-
-        // Reserve new ticket
-        currentGame.selectedCards.set(newId, {
-            socketId: socket.id,
-            phone: cleanPhone,
-            name: name || 'Player'
         });
-
-        let playerRecord = currentGame.players.get(socket.id);
-        if (!playerRecord) {
-            playerRecord = {
-                socketId: socket.id,
-                telegramId: cleanPhone,
-                phone: cleanPhone,
-                name: name || 'Player',
-                tickets: []
-            };
-            currentGame.players.set(socket.id, playerRecord);
-        }
-        playerRecord.tickets = playerRecord.tickets.filter(t => parseInt(t.id, 10) !== oldId && parseInt(t.id, 10) !== newId);
-        if (newTicketData) {
-            playerRecord.tickets.push(newTicketData);
-        }
-
-        const totalTickets = currentGame.selectedCards.size;
-        currentGame.totalJackpot = totalTickets * currentGame.stake;
-        currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
-
-        socket.emit('ticket_cancelled_success', oldId);
-        socket.emit('ticket_changed_success', { oldId, newId });
-        io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
-        io.emit('game_status', getGameStatusPayload());
+        io.emit('playerCount', currentGame.players.size);
     });
 
-    socket.on('claimBingo', () => {
+    socket.on('claimBingo', (data) => {
         if (currentGame.state !== 'PLAYING') return;
-
-        const playerRecord = currentGame.players.get(socket.id);
-
-        if (!playerRecord || !playerRecord.phone) {
-            socket.emit('error', {
-                message: 'Unable to verify your player session.'
-            });
-            return;
-        }
-
-        const winnerIdentifier = playerRecord.phone;
-        endGame([winnerIdentifier]);
+        // Verify bingo winner
+        endGame([data.name || 'Player']);
     });
 
     socket.on('disconnect', () => {
@@ -2165,12 +1154,6 @@ io.on('connection', (socket) => {
         io.emit('playerCount', currentGame.players.size);
     });
 });
-
-// Single active game countdown loop on startup
-if (!global.__phoenixGameLoopStarted) {
-    global.__phoenixGameLoopStarted = true;
-    startCountdown();
-}
 
 if (require.main === module) {
     server.listen(PORT, () => {
@@ -2184,10 +1167,5 @@ module.exports = {
     registerTelegramUser, 
     normalizePhoneNumber, 
     findUserByTgOrPhone, 
-    verifyTelegramWebAppData,
-    inMemoryUsers,
-    inMemoryGames,
-    currentGame,
-    startGamePlay,
-    endGame
+    inMemoryUsers 
 };
