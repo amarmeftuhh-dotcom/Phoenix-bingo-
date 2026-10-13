@@ -241,21 +241,22 @@
             let data = await res.json();
             
             if(data.success) {
-                let s = data.stats;
-                let adminShare = s.netProfit > 0 ? s.netProfit * 0.70 : 0;
-                let partnerShare = s.netProfit > 0 ? s.netProfit * 0.30 : 0;
+                let s = data.stats || {};
+                let netProfit = Number(s.netProfit || 0);
+                let adminShare = netProfit > 0 ? netProfit * 0.70 : 0;
+                let partnerShare = netProfit > 0 ? netProfit * 0.30 : 0;
 
-                document.getElementById('val-deposit').innerText = s.tDep.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
-                document.getElementById('val-withdraw').innerText = s.tWit.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
-                document.getElementById('val-net-cash').innerText = s.netCash.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
-                document.getElementById('val-turnover').innerText = s.tTurnover.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
-                document.getElementById('val-winnings').innerText = s.tWinnings.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
-                document.getElementById('val-game-profit').innerText = s.tProf.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
-                document.getElementById('val-bonus').innerText = s.totalBonusPaid.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
-                document.getElementById('val-promoter-paid').innerText = s.tPromoterPaid.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
-                document.getElementById('val-liability').innerText = s.liability.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
+                document.getElementById('val-deposit').innerText = Number(s.tDep || 0).toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
+                document.getElementById('val-withdraw').innerText = Number(s.tWit || 0).toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
+                document.getElementById('val-net-cash').innerText = Number(s.netCash || 0).toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
+                document.getElementById('val-turnover').innerText = Number(s.tTurnover || 0).toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
+                document.getElementById('val-winnings').innerText = Number(s.tWinnings || 0).toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
+                document.getElementById('val-game-profit').innerText = Number(s.tProf || 0).toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
+                document.getElementById('val-bonus').innerText = Number(s.totalBonusPaid || 0).toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
+                document.getElementById('val-promoter-paid').innerText = Number(s.tPromoterPaid || 0).toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
+                document.getElementById('val-liability').innerText = Number(s.liability || 0).toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
 
-                let netEl = document.getElementById('net-profit'); netEl.innerText = s.netProfit.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
+                let netEl = document.getElementById('net-profit'); netEl.innerText = netProfit.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
                 document.getElementById('share-admin').innerText = adminShare.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
                 document.getElementById('share-partner').innerText = partnerShare.toLocaleString('en-US', {maximumFractionDigits: 0}) + " ETB";
 

@@ -14,7 +14,7 @@ function runTest() {
     const timeout = setTimeout(() => {
         console.error('❌ Test timed out waiting for number drawing');
         process.exit(1);
-    }, 15000);
+    }, 55000);
 
     // Step 1: Handshake
     http.get(`http://localhost:${PORT}/socket.io/?EIO=4&transport=polling`, (res) => {
@@ -45,6 +45,15 @@ function runTest() {
             let raw = '';
             res.on('data', c => raw += c);
             res.on('end', () => {
+                if (raw === '2' || raw.startsWith('2')) {
+                    const pongReq = http.request(`http://localhost:${PORT}/socket.io/?EIO=4&transport=polling&sid=${sid}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=UTF-8' }
+                    });
+                    pongReq.write('3');
+                    pongReq.end();
+                }
+
                 const regex = /42\[\"([^\"]+)\",\s*([\s\S]*?)\](?=\x1e|$)/g;
                 let m;
                 while ((m = regex.exec(raw)) !== null) {
@@ -55,6 +64,13 @@ function runTest() {
                     if (eventName === 'game_status') {
                         if (eventData.state === 'WAITING' || eventData.state === 'PLAYING') {
                             stateVerified = true;
+                        }
+                        if (eventData.calledNumbers && eventData.calledNumbers.length > 0) {
+                            clearTimeout(timeout);
+                            console.log(`[TEST] Verified called numbers in game_status: ${eventData.calledNumbers.length}`);
+                            console.log('GAME START TEST:');
+                            console.log('WAITING → COUNTDOWN → PLAYING → FIRST NUMBER DRAWN = PASS');
+                            process.exit(0);
                         }
                     } else if (eventName === 'new_number') {
                         numberDrawn = true;

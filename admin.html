@@ -1000,6 +1000,16 @@
                     <button class="action-btn btn-orange" style="width: 100%;" onclick="updateSettings('jackpot_boost')">💾 Save Golden Jackpot</button>
                 </div>
 
+                <div class="card" style="flex: 1; border-left: 4px solid var(--cyan); min-width: 280px;">
+                    <h3 style="margin-top:0; color:var(--cyan);">🎯 Jackpot Call Threshold (14–18 Calls)</h3>
+                    <p style="font-size:10px; color:var(--text-gray); margin-top:0;">ጃክፖት ማሸነፊያ የጥሪ ብዛት ገደብ (14 እስከ 18 ጥሪዎች)። በዚሁ ገደብ ውስጥ ቢንጎ ያለው ጃክፖቱን ያሸንፋል።</p>
+                    <div style="display:flex; gap:10px; align-items:center; margin-bottom: 15px;">
+                        <input type="number" id="set-jackpot-threshold" min="14" max="18" placeholder="16" style="flex:1;">
+                        <span style="color:var(--text-gray); font-size:12px; white-space:nowrap;">ጥሪ (14-18)</span>
+                    </div>
+                    <button class="action-btn" style="width: 100%; background:var(--cyan); color:#000; font-weight:bold;" onclick="updateSettings('jackpot_threshold')">💾 Save Jackpot Threshold</button>
+                </div>
+
                 <div class="card" style="flex: 1; border-left: 4px solid var(--purple); min-width: 280px;">
                     <h3 style="margin-top:0; color:var(--purple);">🏆 Win Popup Timer</h3>
                     <p style="font-size:10px; color:var(--text-gray); margin-top:0;">አሸናፊ ሲመጣ ስክሪኑ ላይ ስንት ሰከንድ ይቆይ</p>
@@ -2420,6 +2430,7 @@ async function submitManualDeposit() {
                 safeUpdate('set-min-withdraw', data.settings.minWithdrawLimit !== undefined ? data.settings.minWithdrawLimit : 50);
                 
                 safeUpdate('set-jackpot-boost', data.settings.jackpotBoostAmount !== undefined ? data.settings.jackpotBoostAmount : 0);
+                safeUpdate('set-jackpot-threshold', data.settings.jackpotThreshold !== undefined ? data.settings.jackpotThreshold : 16);
                 safeUpdate('set-win-timer', data.settings.winPopupTimer !== undefined ? data.settings.winPopupTimer : 12);
 
                 safeUpdate('set-admin-profit', data.settings.adminProfitPercent !== undefined ? data.settings.adminProfitPercent : 15);
@@ -3191,13 +3202,16 @@ async function submitManualDeposit() {
     }
 
     function viewPlayerMultipleCards(ticketsData, called) { 
-        document.getElementById('m-called').innerText = "✅ Called: " + called.join(", "); 
+        const calledArr = Array.isArray(called) ? called : [];
+        document.getElementById('m-called').innerText = "✅ Called: " + calledArr.join(", "); 
         let fullHtml = ""; 
-        ticketsData.forEach((ticket, i) => { 
-            fullHtml += `<h4 style="margin:10px 0 5px 0; color:var(--purple);">Ticket #${ticket.id || i+1}</h4><div class="grid-preview">`; 
+        (ticketsData || []).forEach((ticket, i) => { 
+            fullHtml += `<h4 style="margin:10px 0 5px 0; color:var(--purple);">Ticket #${(ticket && ticket.id) || i+1}</h4><div class="grid-preview">`; 
             for(let r=0; r<5; r++) {
                 for(let c=0; c<5; c++) {
-                    fullHtml += `<div class="${called.includes(ticket.grid[c][r]) || (c===2&&r===2) ? "highlight" : ""}">${(c===2&&r===2) ? "FREE" : ticket.grid[c][r]}</div>`; 
+                    let num = (ticket && ticket.grid && ticket.grid[c] && ticket.grid[c][r] !== undefined) ? ticket.grid[c][r] : '';
+                    let isMarked = calledArr.includes(num) || (c===2&&r===2);
+                    fullHtml += `<div class="${isMarked ? "highlight" : ""}">${(c===2&&r===2) ? "FREE" : num}</div>`; 
                 }
             }
             fullHtml += `</div><hr style="border-color: var(--border);">`; 
@@ -3231,7 +3245,7 @@ async function submitManualDeposit() {
             fullHtml += `<h4 style="margin:10px 0 5px 0; color:var(--gold); font-size: 14px;">🏆 ${gObj.name} (Card #${gObj.id})</h4><div class="grid-preview">`; 
             for(let r=0; r<5; r++) { 
                 for(let c=0; c<5; c++) { 
-                    let num = gObj.grid[c][r]; 
+                    let num = (gObj.grid && gObj.grid[c] && gObj.grid[c][r] !== undefined) ? gObj.grid[c][r] : ''; 
                     let isMarked = called.includes(num) || (c===2&&r===2); 
                     fullHtml += `<div class="${isMarked ? "highlight" : ""}">${(c===2&&r===2) ? "FREE" : num}</div>`; 
                 } 
@@ -3511,6 +3525,14 @@ async function submitManualDeposit() {
             if(type === 'jackpot_boost') {
                 let jb = document.getElementById('set-jackpot-boost').value; 
                 payload.jackpotBoostAmount = (jb !== '' && Number(jb) >= 0) ? Number(jb) : 0;
+            }
+            if(type === 'jackpot_threshold') {
+                let jt = document.getElementById('set-jackpot-threshold').value;
+                let n = parseInt(jt, 10);
+                if(isNaN(n) || n < 14 || n > 18) {
+                    return alert("የጃክፖት ጥሪ ገደብ ከ14 እስከ 18 መሆን አለበት! (Jackpot threshold must be between 14 and 18 calls)");
+                }
+                payload.jackpotThreshold = n;
             }
             if(type === 'win_timer') {
                 let wt = document.getElementById('set-win-timer').value; 
