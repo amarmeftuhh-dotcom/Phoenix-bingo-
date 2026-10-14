@@ -88,11 +88,16 @@ function testCartelaStructureAndDeterminism() {
 
     assert.strictEqual(card1.length, 5, 'Cartela must have 5 columns');
     card1.forEach((col, idx) => {
-        assert.strictEqual(col.length, 5, `Column ${idx} must contain 5 numbers`);
+        assert.strictEqual(col.length, 5, `Column ${idx} must contain 5 cells`);
         const min = idx * 15 + 1;
         const max = (idx + 1) * 15;
-        col.forEach(num => {
-            assert.ok(num >= min && num <= max, `Column ${idx} number ${num} must be between ${min} and ${max}`);
+        col.forEach((cell, rowIdx) => {
+            if (idx === 2 && rowIdx === 2) {
+                assert.strictEqual(cell, 'FREE', 'Center cell (col 2, row 2) must be "FREE"');
+            } else {
+                assert.strictEqual(typeof cell, 'number', `Cell [${idx}][${rowIdx}] must be a number`);
+                assert.ok(cell >= min && cell <= max, `Column ${idx} number ${cell} must be between ${min} and ${max}`);
+            }
         });
     });
 
@@ -100,6 +105,8 @@ function testCartelaStructureAndDeterminism() {
     assert.notDeepStrictEqual(card1, card2, 'Different ticketIds must generate different cartelas');
 
     // FREE square check
+    assert.strictEqual(card1[2][2], 'FREE', 'Card 1 center cell must be "FREE"');
+    assert.strictEqual(card2[2][2], 'FREE', 'Card 2 center cell must be "FREE"');
     assert.strictEqual(isCellCovered(card1, 2, 2, new Set()), true, 'Center cell (2,2) must always be covered as FREE');
 
     console.log('✓ 2. Deterministic 75-ball cartela structure and FREE square verified');

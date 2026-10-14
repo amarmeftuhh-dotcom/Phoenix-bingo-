@@ -24,20 +24,29 @@ function testCartelaGeneration() {
 
     assert.strictEqual(card1.length, 5, 'Cartela must have 5 columns');
     card1.forEach((col, idx) => {
-        assert.strictEqual(col.length, 5, `Column ${idx} must have 5 numbers`);
+        assert.strictEqual(col.length, 5, `Column ${idx} must have 5 cells`);
         // Test standard 75-ball bingo column ranges
         const min = idx * 15 + 1;
         const max = (idx + 1) * 15;
-        col.forEach(num => {
-            assert.ok(num >= min && num <= max, `Number ${num} must be in range ${min}-${max}`);
+        col.forEach((cell, rowIdx) => {
+            if (idx === 2 && rowIdx === 2) {
+                assert.strictEqual(cell, 'FREE', 'Center cell (col 2, row 2) must be "FREE"');
+            } else {
+                assert.strictEqual(typeof cell, 'number', `Cell [${idx}][${rowIdx}] must be a number`);
+                assert.ok(cell >= min && cell <= max, `Number ${cell} must be in range ${min}-${max}`);
+            }
         });
     });
+
+    // Verify center square on multiple cards
+    assert.strictEqual(card1[2][2], 'FREE', 'Card 1 center cell must be "FREE"');
+    assert.strictEqual(card2[2][2], 'FREE', 'Card 2 center cell must be "FREE"');
 
     // Check determinism
     assert.deepStrictEqual(card1, card1Again, 'generateFixedCard must be deterministic for identical ticket IDs');
     assert.notDeepStrictEqual(card1, card2, 'Different ticket IDs must produce different cartelas');
 
-    console.log('✓ 1. Deterministic cartela generation verified');
+    console.log('✓ 1. Deterministic cartela generation and 75-ball column ranges verified');
 }
 
 // 2. Test FREE Square Handling
@@ -46,11 +55,19 @@ function testFreeSquare() {
     const emptySet = new Set();
 
     // Center cell (2, 2) is always covered
+    assert.strictEqual(grid[2][2], 'FREE', 'Center cell in grid must be represented as "FREE"');
     assert.strictEqual(isCellCovered(grid, 2, 2, emptySet), true, 'Center cell (2,2) must always be covered as FREE');
     // Non-center cells with empty called set are NOT covered
     assert.strictEqual(isCellCovered(grid, 0, 0, emptySet), false, 'Non-center cell without called number must not be covered');
 
-    console.log('✓ 2. Center FREE square rule verified');
+    // Ensure FREE square is never treated as a called number
+    const nonCalledSet = new Set([999]);
+    assert.strictEqual(isCellCovered(grid, 0, 0, nonCalledSet), false, 'Uncalled number cell must not be covered');
+    // Passing "FREE" in called set must not treat non-center cells as covered
+    const setWithFree = new Set(['FREE']);
+    assert.strictEqual(isCellCovered(grid, 0, 0, setWithFree), false, 'String "FREE" in called set must not cover non-free cells');
+
+    console.log('✓ 2. Center FREE square rule and automatic coverage verified');
 }
 
 // 3. Test ONE LINE Winning Patterns

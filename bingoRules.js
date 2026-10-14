@@ -45,26 +45,32 @@ function generateFixedCard(ticketId) {
         return arr.sort((a, b) => a - b);
     }
 
-    return [
+    const grid = [
         getCol(1, 15),
         getCol(16, 30),
         getCol(31, 45),
         getCol(46, 60),
         getCol(61, 75)
     ];
+    grid[2][2] = 'FREE';
+    return grid;
 }
 
 /**
  * Checks whether a specific cell on the 5x5 cartela is covered.
  * Center cell (col 2, row 2) is a FREE square and is always covered.
+ * FREE square is never treated as a called number.
  */
 function isCellCovered(grid, col, row, calledSet) {
     if (col === 2 && row === 2) {
-        return true; // FREE square
+        return true; // Center cell (col 2, row 2) is always automatically covered
     }
     if (!grid || !Array.isArray(grid[col])) return false;
     const cellValue = grid[col][row];
-    return typeof cellValue === 'number' && calledSet.has(cellValue);
+    if (cellValue === 'FREE') {
+        return true; // FREE square is automatically covered
+    }
+    return typeof cellValue === 'number' && Number.isInteger(cellValue) && calledSet.has(cellValue);
 }
 
 /**
