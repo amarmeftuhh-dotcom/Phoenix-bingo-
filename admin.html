@@ -3158,7 +3158,9 @@ async function submitManualDeposit() {
     
     async function fetchAndShowUserInfo(phone) {
         try {
-            let uRes = await fetch(`/api/getUser/${phone}`);
+            let uRes = await fetch(`/api/getUser/${encodeURIComponent(phone)}?adminPass=${encodeURIComponent(pass)}`, {
+                headers: { 'x-admin-pass': pass }
+            });
             let uData = await uRes.json();
             if(!uData.success) return alert("User not found.");
             

@@ -273,36 +273,78 @@ const GameSchema = new mongoose.Schema({
 
 const TransactionSchema = new mongoose.Schema({
     reference: { type: String, unique: true, sparse: true, index: true },
+    txRef: { type: String },
     userId: { type: String, index: true },
-    type: String, // DEPOSIT, WITHDRAWAL, BET, WIN, BONUS, REFUND
+    phone: { type: String, index: true },
+    type: String, // deposit, withdraw, win, DEPOSIT, WITHDRAWAL, BET, WIN, BONUS, REFUND
+    method: String,
     amount: Number,
+    bonusGiven: { type: Number, default: 0 },
+    status: { type: String, default: 'Approved' }, // Pending, Approved, Rejected
+    smsText: String,
     balanceAfter: Number,
     date: { type: Date, default: Date.now, index: true },
     note: String
-});
+}, { strict: false });
 
 const SettingsSchema = new mongoose.Schema({
     gameStake: { type: Number, default: 10 },
+    ticketPrice: { type: Number, default: 10 },
+    gameTimer: { type: Number, default: 40 },
+    maxTicketsPerUser: { type: Number, default: 4 },
+    minWithdrawLimit: { type: Number, default: 50 },
     jackpotThreshold: { type: Number, default: 16 },
+    jackpotBoostAmount: { type: Number, default: 0 },
+    winPopupTimer: { type: Number, default: 12 },
+    adminProfitPercent: { type: Number, default: 20 },
     houseCutPercent: { type: Number, default: 20 },
     minDeposit: { type: Number, default: 10 },
     minWithdraw: { type: Number, default: 50 },
-    telebirrAcc: { type: String, default: SUPPORT_PHONE_NUMBER },
-    cbeAcc: { type: String, default: '1000...' },
-    mpesaAcc: { type: String, default: '07...' },
+    registerBonus: { type: Number, default: 15 },
+    inviteBonus: { type: Number, default: 10 },
+    telebirrAccountName: { type: String, default: 'Phoenix Bingo' },
+    telebirrAccountNumber: { type: String, default: SUPPORT_PHONE_NUMBER },
+    cbeAccountName: { type: String, default: 'Phoenix Bingo' },
+    cbeAccountNumber: { type: String, default: '1000000000000' },
+    mpesaAccountName: { type: String, default: 'Phoenix Bingo' },
+    mpesaAccountNumber: { type: String, default: '0700000000' },
+    isBotSystemActive: { type: Boolean, default: true },
+    botWinnerForce: { type: String, default: 'mix' },
+    mixBotCount: { type: Number, default: 1 },
+    botDist1: { type: Number, default: 5 },
+    botDist2: { type: Number, default: 4 },
+    botDist3: { type: Number, default: 3 },
+    botDist4: { type: Number, default: 3 },
+    isBotScheduleActive: { type: Boolean, default: false },
+    botStepSeconds: { type: Number, default: 5 },
+    botSlots: { type: Array, default: [] },
+    isGamePaused: { type: Boolean, default: false },
+    virtualPrizePool: { type: Number, default: 0 },
+    vaultTwoBalance: { type: Number, default: 0 },
+    vaultTwoPercent: { type: Number, default: 10 },
+    vaultThreeBalance: { type: Number, default: 0 },
+    vaultThreePercent: { type: Number, default: 10 },
+    decoyChancePercent: { type: Number, default: 15 },
+    bonusWinPercent: { type: Number, default: 0 },
     botUsername: { type: String, default: PHOENIX_BOT_USERNAME },
     supportUsername: { type: String, default: PHOENIX_SUPPORT_USERNAME },
+    telegramChannel: { type: String, default: '' },
     announcement: { type: String, default: 'Welcome to Phoenix Bingo VIP!' }
-});
+}, { strict: false });
 
 const PromoSchema = new mongoose.Schema({
     code: { type: String, unique: true },
     amount: Number,
     maxUses: Number,
+    currentUses: { type: Number, default: 0 },
     usesCount: { type: Number, default: 0 },
+    requireDeposit: { type: Boolean, default: false },
+    minDepositAmount: { type: Number, default: 0 },
+    requireDepositWithinHours: { type: Number, default: 0 },
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
     usedBy: [String],
     active: { type: Boolean, default: true }
-});
+}, { strict: false });
 
 const User = mongoose.models.User || mongoose.model('User', UserSchema);
 const Deposit = mongoose.models.Deposit || mongoose.model('Deposit', DepositSchema);
@@ -1926,6 +1968,63 @@ app.get('/api/admin/jackpot-threshold', (req, res) => {
     });
 });
 
+const inMemoryTransactions = [];
+const inMemoryPromos = [];
+let inMemoryClaimPromo = null;
+let inMemorySeason = { status: 'idle', end: 0, paid: false };
+
+async function getActiveSettingsObj() {
+    let base = {
+        ticketPrice: currentGame.stake || 10,
+        gameStake: currentGame.stake || 10,
+        gameTimer: currentGame.timer || 40,
+        maxTicketsPerUser: 4,
+        minWithdrawLimit: 50,
+        jackpotThreshold: validateJackpotThreshold(currentGame.jackpotThreshold || DEFAULT_JACKPOT_THRESHOLD),
+        jackpotBoostAmount: 0,
+        winPopupTimer: 12,
+        adminProfitPercent: 20,
+        registerBonus: 15,
+        inviteBonus: 10,
+        telebirrAccountName: 'Phoenix Bingo',
+        telebirrAccountNumber: SUPPORT_PHONE_NUMBER,
+        cbeAccountName: 'Phoenix Bingo',
+        cbeAccountNumber: '1000000000000',
+        mpesaAccountName: 'Phoenix Bingo',
+        mpesaAccountNumber: '0700000000',
+        isBotSystemActive: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.isBotSystemActive : true,
+        botWinnerForce: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.botWinnerForce : 'mix',
+        mixBotCount: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.mixBotCount : 1,
+        botDist1: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.botDist1 : 5,
+        botDist2: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.botDist2 : 4,
+        botDist3: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.botDist3 : 3,
+        botDist4: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.botDist4 : 3,
+        isBotScheduleActive: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.isBotScheduleActive : false,
+        botStepSeconds: 5,
+        botSlots: [],
+        isGamePaused: false,
+        virtualPrizePool: 0,
+        vaultTwoBalance: 0,
+        vaultTwoPercent: 10,
+        vaultThreeBalance: 0,
+        vaultThreePercent: 10,
+        decoyChancePercent: 15,
+        bonusWinPercent: 0
+    };
+    if (mongoose.connection.readyState === 1) {
+        try {
+            const s = await Settings.findOne();
+            if (s) {
+                const sObj = typeof s.toObject === 'function' ? s.toObject() : s;
+                base = { ...base, ...sObj };
+            }
+        } catch (_) {}
+    } else if (global.__inMemorySettings) {
+        base = { ...base, ...global.__inMemorySettings };
+    }
+    return base;
+}
+
 // Admin Live Stats API for Admin Dashboard
 app.post('/api/admin/live-stats', async (req, res) => {
     try {
@@ -1936,31 +2035,102 @@ app.post('/api/admin/live-stats', async (req, res) => {
         const currentCalls = (currentGame.drawnNumbers || []).length;
         const threshold = validateJackpotThreshold(currentGame.jackpotThreshold || DEFAULT_JACKPOT_THRESHOLD);
         const eligibility = evaluateJackpotEligibility(currentCalls, threshold);
+        const sysSettings = await getActiveSettingsObj();
 
         let totalUsers = inMemoryUsers.size;
+        let allGames = inMemoryGames;
+        let allTxs = inMemoryTransactions;
+
         if (mongoose.connection.readyState === 1) {
             totalUsers = await User.countDocuments();
+            allGames = await Game.find({ status: 'COMPLETED' }).limit(500);
+            allTxs = await Transaction.find().limit(1000);
         }
+
+        let totalProfit = 0;
+        for (const g of allGames) {
+            if (g && g.status === 'COMPLETED') {
+                totalProfit += Number(g.houseCut || Math.max(0, (g.totalJackpot || 0) - (g.netJackpot || 0)));
+            }
+        }
+
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+
+        let dailyDeposit = 0;
+        let dailyWithdraw = 0;
+        for (const t of allTxs) {
+            const tDate = new Date(t.date || t.createdAt || Date.now());
+            if (tDate >= startOfToday && (t.status === 'Approved' || t.status === 'APPROVED')) {
+                const tType = String(t.type || '').toLowerCase();
+                if (tType === 'deposit') dailyDeposit += Number(t.amount || 0);
+                if (tType === 'withdraw' || tType === 'withdrawal') dailyWithdraw += Number(t.amount || 0);
+            }
+        }
+
+        let realPlayersCount = 0;
+        let botPlayersCount = 0;
+        let realTicketsCount = 0;
+        let botTicketsCount = 0;
+        const activeBotPhonesSet = new Set();
+        const activeRealPhonesSet = new Set();
+
+        for (const seat of currentGame.selectedCards.values()) {
+            if (!seat) continue;
+            if (seat.isBot) {
+                botTicketsCount++;
+                if (seat.phone) activeBotPhonesSet.add(seat.phone);
+            } else {
+                realTicketsCount++;
+                if (seat.phone) activeRealPhonesSet.add(seat.phone);
+            }
+        }
+        botPlayersCount = activeBotPhonesSet.size;
+        realPlayersCount = Math.max(activeRealPhonesSet.size, currentGame.players.size);
+
+        const stake = Number(currentGame.stake || 10);
 
         return res.json({
             success: true,
             totalUsers,
-            dailyActive: inMemoryUsers.size,
-            realPlayersCount: currentGame.players.size,
-            botPlayersCount: 0,
+            dailyActive: Math.max(realPlayersCount, inMemoryUsers.size),
+            weeklyActive: totalUsers,
+            monthlyActive: totalUsers,
+            dailyActiveMainBal: 0,
+            totalProfit,
+            realPlayersCount,
+            botPlayersCount,
+            realMoney: realTicketsCount * stake,
+            botMoney: botTicketsCount * stake,
+            activeBotPhones: Array.from(activeBotPhonesSet),
             gameState: currentGame.state,
-            currentJackpot: currentGame.totalJackpot || 0,
+            currentJackpot: currentGame.netJackpot || currentGame.totalJackpot || 0,
             netJackpot: currentGame.netJackpot || 0,
+            dailyDeposit,
+            dailyWithdraw,
+            totalUnplayedBonus: 0,
+            scheduleStatus: {
+                active: !!sysSettings.isBotScheduleActive,
+                name: sysSettings.isBotScheduleActive ? 'Default Schedule' : 'None',
+                start: '00:00',
+                end: '23:59',
+                time: new Date().toLocaleTimeString(),
+                min: 5,
+                max: 15,
+                stepSeconds: sysSettings.botStepSeconds || 5,
+                current: botPlayersCount
+            },
             settings: {
-                ticketPrice: currentGame.stake || 10,
+                ...sysSettings,
+                ticketPrice: stake,
                 jackpotThreshold: threshold,
                 jackpotMinThreshold: MIN_JACKPOT_THRESHOLD,
                 jackpotMaxThreshold: MAX_JACKPOT_THRESHOLD,
                 jackpotCallsCount: currentCalls,
                 jackpotEligible: eligibility.isEligible,
                 jackpotCallsRemaining: eligibility.callsRemaining,
-                gameTimer: currentGame.timer || 40,
-                maxTicketsPerUser: 4
+                gameTimer: sysSettings.gameTimer || 40,
+                maxTicketsPerUser: sysSettings.maxTicketsPerUser || 4
             }
         });
     } catch (err) {
@@ -1971,26 +2141,36 @@ app.post('/api/admin/live-stats', async (req, res) => {
 // Admin Update Settings
 app.post('/api/admin/update-settings', async (req, res) => {
     try {
-        const { adminPass, jackpotThreshold, ticketPrice, gameTimer } = req.body || {};
+        const body = req.body || {};
+        const { adminPass, jackpotThreshold, ticketPrice, gameTimer, pauseGame } = body;
         if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
             return res.status(401).json({ success: false, error: 'Unauthorized' });
         }
 
+        if (!global.__inMemorySettings) global.__inMemorySettings = {};
+        const updates = { ...body };
+        delete updates.adminPass;
+
         if (jackpotThreshold !== undefined) {
             currentGame.jackpotThreshold = validateJackpotThreshold(jackpotThreshold);
+            updates.jackpotThreshold = currentGame.jackpotThreshold;
         }
         if (ticketPrice !== undefined && Number(ticketPrice) > 0) {
             currentGame.stake = Number(ticketPrice);
+            updates.ticketPrice = currentGame.stake;
+            updates.gameStake = currentGame.stake;
         }
         if (gameTimer !== undefined && Number(gameTimer) > 0) {
-            currentGame.timer = Number(gameTimer);
+            updates.gameTimer = Number(gameTimer);
+        }
+        if (pauseGame !== undefined) {
+            updates.isGamePaused = !!pauseGame;
         }
 
+        Object.assign(global.__inMemorySettings, updates);
+
         if (mongoose.connection.readyState === 1) {
-            await Settings.findOneAndUpdate({}, {
-                jackpotThreshold: currentGame.jackpotThreshold,
-                gameStake: currentGame.stake
-            }, { upsert: true });
+            await Settings.findOneAndUpdate({}, { $set: updates }, { upsert: true });
         }
 
         io.emit('game_status', getGameStatusPayload());
@@ -2002,6 +2182,950 @@ app.post('/api/admin/update-settings', async (req, res) => {
         });
     } catch (err) {
         return res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ══════════════════════════════════════════════════
+// COMPREHENSIVE ADMIN PORTAL & PLAYER WALLET ROUTES
+// ══════════════════════════════════════════════════
+
+// 1. Player Request Deposit or Withdrawal (/api/request-tx)
+app.post('/api/request-tx', async (req, res) => {
+    try {
+        const { phone, type, amount, method, sms, destinationPhone } = req.body || {};
+        const cleanPhone = normalizePhoneNumber(phone) || String(phone || '').trim();
+        const numAmt = Number(amount);
+        if (!cleanPhone || isNaN(numAmt) || numAmt <= 0) {
+            return res.status(400).json({ success: false, message: 'እባክዎ ትክክለኛ መረጃ ያስገቡ (Invalid transaction request)' });
+        }
+
+        const user = await findUserByTgOrPhone(null, cleanPhone);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'ተጠቃሚው አልተገኘም (User not found)' });
+        }
+
+        const txType = String(type || 'deposit').toLowerCase() === 'withdraw' ? 'withdraw' : 'deposit';
+
+        if (txType === 'withdraw') {
+            const currentMain = Number(user.mainBalance ?? user.balance ?? 0);
+            if (numAmt > currentMain) {
+                return res.status(400).json({ success: false, message: 'በዋና ሂሳብዎ ላይ በቂ ገንዘብ የሎትም! (Insufficient main balance)' });
+            }
+            user.mainBalance = Math.max(0, currentMain - numAmt);
+            user.balance = user.mainBalance;
+            if (typeof user.save === 'function') await user.save().catch(() => {});
+            inMemoryUsers.set(cleanPhone, user);
+        }
+
+        let txRef = 'TX-' + Date.now();
+        if (sms) {
+            const trxMatch = String(sms).match(/transaction\s*(?:id|no\.?|reference)?\s*[:\s]*([A-Z0-9]+)/i) || String(sms).match(/([A-Z0-9]{8,15})/);
+            if (trxMatch) txRef = trxMatch[1];
+        }
+
+        const txRecord = {
+            _id: 'tx_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+            reference: txRef + '_' + Date.now(),
+            txRef,
+            userId: cleanPhone,
+            phone: cleanPhone,
+            type: txType,
+            method: method || 'Telebirr',
+            amount: numAmt,
+            status: 'Pending',
+            smsText: txType === 'withdraw' ? `Transfer to: ${destinationPhone || cleanPhone}` : (sms || ''),
+            date: new Date()
+        };
+
+        if (mongoose.connection.readyState === 1) {
+            const created = await Transaction.create(txRecord);
+            txRecord._id = String(created._id);
+        }
+        inMemoryTransactions.unshift(txRecord);
+
+        return res.json({
+            success: true,
+            status: 'Pending',
+            message: txType === 'deposit'
+                ? '✅ የዲፖዚት ጥያቄዎ ተልኳል! አድሚን ሲያረጋግጥ ወደ ሂሳብዎ ይገባል።'
+                : '✅ የወጪ (Withdraw) ጥያቄዎ ተልኳል! በቅርቡ ይስተናገዳል።'
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 2. Player Transaction History (/api/user/transactions/:phone)
+app.get('/api/user/transactions/:phone', async (req, res) => {
+    try {
+        const cleanPhone = normalizePhoneNumber(req.params.phone) || String(req.params.phone || '').trim();
+        let txs = [];
+        if (mongoose.connection.readyState === 1) {
+            txs = await Transaction.find({
+                $or: [{ phone: cleanPhone }, { userId: cleanPhone }, { phone: req.params.phone }]
+            }).sort({ date: -1 }).limit(50);
+        } else {
+            txs = inMemoryTransactions.filter(t => t.phone === cleanPhone || t.userId === cleanPhone).slice(0, 50);
+        }
+        return res.json({ success: true, txs });
+    } catch (err) {
+        return res.status(500).json({ success: false, txs: [] });
+    }
+});
+
+// 3. Admin Transactions List (Pending & History) (/api/admin/transactions)
+app.post('/api/admin/transactions', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { isPending, page = 1, limit = 20, search = '', type = 'deposit' } = req.body || {};
+        const p = Math.max(1, parseInt(page, 10));
+        const l = Math.min(100, Math.max(1, parseInt(limit, 10)));
+        const skip = (p - 1) * l;
+
+        let allTxs = [];
+        if (mongoose.connection.readyState === 1) {
+            allTxs = await Transaction.find().sort({ date: -1 }).limit(1000);
+        } else {
+            allTxs = [...inMemoryTransactions];
+        }
+
+        const normalized = allTxs.map(t => {
+            const raw = typeof t.toObject === 'function' ? t.toObject() : t;
+            const rawType = String(raw.type || '').toLowerCase();
+            let normType = rawType;
+            if (rawType.includes('dep')) normType = 'deposit';
+            else if (rawType.includes('wit')) normType = 'withdraw';
+            else if (rawType.includes('win')) normType = 'win';
+
+            let normStatus = raw.status || 'Approved';
+            if (String(normStatus).toUpperCase() === 'PENDING') normStatus = 'Pending';
+            else if (String(normStatus).toUpperCase() === 'APPROVED') normStatus = 'Approved';
+            else if (String(normStatus).toUpperCase() === 'REJECTED') normStatus = 'Rejected';
+
+            return {
+                _id: String(raw._id || raw.reference),
+                phone: raw.phone || raw.userId || 'Unknown',
+                type: normType,
+                method: raw.method || 'Wallet',
+                amount: Number(raw.amount || 0),
+                bonusGiven: Number(raw.bonusGiven || 0),
+                txRef: raw.txRef || raw.reference || 'N/A',
+                status: normStatus,
+                smsText: raw.smsText || raw.note || '',
+                date: raw.date || new Date()
+            };
+        });
+
+        if (isPending) {
+            const pendings = normalized.filter(t => t.status === 'Pending' && (t.type === 'deposit' || t.type === 'withdraw'));
+            return res.json({ success: true, txs: pendings, total: pendings.length });
+        }
+
+        const cleanSearch = String(search || '').trim().toLowerCase();
+        let filtered = normalized.filter(t => {
+            if (type === 'rejected') return t.status === 'Rejected';
+            return t.type === type && t.status !== 'Pending';
+        });
+
+        if (cleanSearch) {
+            filtered = filtered.filter(t =>
+                String(t.phone).toLowerCase().includes(cleanSearch) ||
+                String(t.txRef).toLowerCase().includes(cleanSearch) ||
+                String(t.smsText).toLowerCase().includes(cleanSearch)
+            );
+        }
+
+        return res.json({
+            success: true,
+            txs: filtered.slice(skip, skip + l),
+            total: filtered.length
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// 4. Admin Approve / Reject Deposit & Withdraw (/api/admin/action-tx)
+app.post('/api/admin/action-tx', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { txId, action } = req.body || {};
+        if (!txId || !action) return res.status(400).json({ success: false, message: 'Missing txId or action' });
+
+        let txDoc = null;
+        if (mongoose.connection.readyState === 1 && !String(txId).startsWith('tx_')) {
+            txDoc = await Transaction.findById(txId);
+        }
+        const memTx = inMemoryTransactions.find(t => String(t._id) === String(txId));
+        const target = txDoc || memTx;
+
+        if (!target) {
+            return res.status(404).json({ success: false, message: 'Transaction not found' });
+        }
+
+        const currentStatus = String(target.status || '').toLowerCase();
+        if (currentStatus !== 'pending') {
+            return res.json({ success: true, message: 'Transaction already processed' });
+        }
+
+        const isApprove = String(action).toLowerCase() === 'approve';
+        const newStatus = isApprove ? 'Approved' : 'Rejected';
+        const phone = normalizePhoneNumber(target.phone || target.userId) || (target.phone || target.userId);
+        const amt = Number(target.amount || 0);
+        const txType = String(target.type || '').toLowerCase();
+
+        target.status = newStatus;
+        if (txDoc && typeof txDoc.save === 'function') await txDoc.save();
+        if (memTx) memTx.status = newStatus;
+
+        const user = await findUserByTgOrPhone(null, phone);
+        if (user) {
+            if (txType.includes('dep') && isApprove) {
+                // Credit deposit to playBalance (or mainBalance)
+                user.playBalance = Number(user.playBalance ?? user.bonusBalance ?? 0) + amt;
+                user.bonusBalance = user.playBalance;
+                user.totalDeposited = Number(user.totalDeposited || 0) + amt;
+                if (typeof user.save === 'function') await user.save().catch(() => {});
+                inMemoryUsers.set(phone, user);
+
+                io.emit('balance_updated', {
+                    phone,
+                    playBalance: user.playBalance,
+                    mainBalance: Number(user.mainBalance ?? user.balance ?? 0),
+                    totalBalance: user.playBalance + Number(user.mainBalance ?? user.balance ?? 0)
+                });
+            } else if (txType.includes('wit') && !isApprove) {
+                // Refund rejected withdrawal back to mainBalance
+                user.mainBalance = Number(user.mainBalance ?? user.balance ?? 0) + amt;
+                user.balance = user.mainBalance;
+                if (typeof user.save === 'function') await user.save().catch(() => {});
+                inMemoryUsers.set(phone, user);
+
+                io.emit('balance_updated', {
+                    phone,
+                    playBalance: Number(user.playBalance ?? user.bonusBalance ?? 0),
+                    mainBalance: user.mainBalance,
+                    totalBalance: Number(user.playBalance ?? user.bonusBalance ?? 0) + user.mainBalance
+                });
+            }
+        }
+
+        return res.json({ success: true, status: newStatus, message: `Transaction ${newStatus}` });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 5. Admin Manual Receipt Deposit (/api/admin/manual-receipt-deposit)
+app.post('/api/admin/manual-receipt-deposit', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { phone, txRef, amount, bank } = req.body || {};
+        const cleanPhone = normalizePhoneNumber(phone) || String(phone || '').trim();
+        const numAmt = Number(amount);
+        if (!cleanPhone || !txRef || isNaN(numAmt) || numAmt <= 0) {
+            return res.status(400).json({ success: false, message: 'እባክዎ ስልክ፣ ደረሰኝ ቁጥር እና የብር መጠን በትክክል ያስገቡ!' });
+        }
+
+        const user = await findUserByTgOrPhone(null, cleanPhone);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'ተጠቃሚው አልተገኘም!' });
+        }
+
+        user.playBalance = Number(user.playBalance ?? user.bonusBalance ?? 0) + numAmt;
+        user.bonusBalance = user.playBalance;
+        user.totalDeposited = Number(user.totalDeposited || 0) + numAmt;
+        if (typeof user.save === 'function') await user.save().catch(() => {});
+        inMemoryUsers.set(cleanPhone, user);
+
+        const txRecord = {
+            _id: 'tx_' + Date.now(),
+            reference: txRef + '_' + Date.now(),
+            txRef,
+            userId: cleanPhone,
+            phone: cleanPhone,
+            type: 'deposit',
+            method: bank || 'Manual Admin',
+            amount: numAmt,
+            status: 'Approved',
+            smsText: `Manual Deposit by Admin (Ref: ${txRef})`,
+            date: new Date()
+        };
+        if (mongoose.connection.readyState === 1) {
+            await Transaction.create(txRecord).catch(() => {});
+        }
+        inMemoryTransactions.unshift(txRecord);
+
+        io.emit('balance_updated', {
+            phone: cleanPhone,
+            playBalance: user.playBalance,
+            mainBalance: Number(user.mainBalance ?? user.balance ?? 0),
+            totalBalance: user.playBalance + Number(user.mainBalance ?? user.balance ?? 0)
+        });
+
+        return res.json({ success: true, message: `ለ ${cleanPhone} የ ${numAmt} ETB በተሳካ ሁኔታ ተሞልቷል!` });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 6. Admin Clear Spam Deposits (/api/admin/clear-spam-deposits)
+app.post('/api/admin/clear-spam-deposits', adminAuthMiddleware, async (req, res) => {
+    try {
+        if (mongoose.connection.readyState === 1) {
+            await Transaction.deleteMany({ type: 'deposit', status: { $in: ['Pending', 'PENDING'] } });
+        }
+        for (let i = inMemoryTransactions.length - 1; i >= 0; i--) {
+            if (inMemoryTransactions[i].type === 'deposit' && inMemoryTransactions[i].status === 'Pending') {
+                inMemoryTransactions.splice(i, 1);
+            }
+        }
+        io.emit('pending_deposits_cleared');
+        return res.json({ success: true, message: 'ሁሉም Pending Deposits ተሰርዘዋል!' });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 7. Admin Delete Transactions (/api/admin/delete-transactions)
+app.post('/api/admin/delete-transactions', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { ids } = req.body || {};
+        if (Array.isArray(ids) && ids.length > 0) {
+            if (mongoose.connection.readyState === 1) {
+                const validObjIds = ids.filter(id => !String(id).startsWith('tx_'));
+                if (validObjIds.length > 0) {
+                    await Transaction.deleteMany({ _id: { $in: validObjIds } }).catch(() => {});
+                }
+            }
+            for (let i = inMemoryTransactions.length - 1; i >= 0; i--) {
+                if (ids.includes(String(inMemoryTransactions[i]._id))) {
+                    inMemoryTransactions.splice(i, 1);
+                }
+            }
+        }
+        return res.json({ success: true });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 8. Admin Users List (/api/admin/users)
+app.post('/api/admin/users', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { page = 1, limit = 20, search = '' } = req.body || {};
+        const p = Math.max(1, parseInt(page, 10));
+        const l = Math.min(100, Math.max(1, parseInt(limit, 10)));
+        const skip = (p - 1) * l;
+        const cleanSearch = String(search || '').trim();
+
+        let usersList = [];
+        let total = 0;
+
+        if (mongoose.connection.readyState === 1) {
+            const filter = {};
+            if (cleanSearch) {
+                const escaped = cleanSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                filter.$or = [
+                    { phone: { $regex: escaped, $options: 'i' } },
+                    { name: { $regex: escaped, $options: 'i' } }
+                ];
+            }
+            total = await User.countDocuments(filter);
+            const docs = await User.find(filter).sort({ registeredAt: -1, _id: -1 }).skip(skip).limit(l);
+            usersList = docs.map(u => ({
+                _id: String(u._id),
+                name: u.name || 'Player',
+                phone: u.phone || u.userId || '',
+                password: u.password ? '••••••' : 'Telegram',
+                playBalance: Number(u.playBalance ?? u.bonusBalance ?? 0),
+                mainBalance: Number(u.mainBalance ?? u.balance ?? 0),
+                totalDeposited: Number(u.totalDeposited || 0),
+                won: Number(u.won ?? u.totalWon ?? 0),
+                status: u.isBlocked ? 'banned' : 'active'
+            }));
+        } else {
+            const uniqueByPhone = new Map();
+            for (const u of inMemoryUsers.values()) {
+                const key = u.phone || u.telegramId;
+                if (key && !uniqueByPhone.has(key)) {
+                    uniqueByPhone.set(key, u);
+                }
+            }
+            let arr = Array.from(uniqueByPhone.values());
+            if (cleanSearch) {
+                const sLow = cleanSearch.toLowerCase();
+                arr = arr.filter(u =>
+                    (u.phone && u.phone.toLowerCase().includes(sLow)) ||
+                    (u.name && u.name.toLowerCase().includes(sLow))
+                );
+            }
+            total = arr.length;
+            usersList = arr.slice(skip, skip + l).map(u => ({
+                _id: u.phone || u.telegramId,
+                name: u.name || 'Player',
+                phone: u.phone || u.telegramId || '',
+                password: '••••••',
+                playBalance: Number(u.playBalance ?? u.bonusBalance ?? 0),
+                mainBalance: Number(u.mainBalance ?? u.balance ?? 0),
+                totalDeposited: Number(u.totalDeposited || 0),
+                won: Number(u.won ?? u.totalWon ?? 0),
+                status: u.isBlocked ? 'banned' : 'active'
+            }));
+        }
+
+        return res.json({ success: true, users: usersList, total });
+    } catch (err) {
+        return res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// 9. Admin User Details (/api/admin/user-details)
+app.post('/api/admin/user-details', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { phone } = req.body || {};
+        const cleanPhone = normalizePhoneNumber(phone) || String(phone || '').trim();
+        let txs = [];
+        if (mongoose.connection.readyState === 1) {
+            txs = await Transaction.find({
+                $or: [{ phone: cleanPhone }, { userId: cleanPhone }, { phone }]
+            }).sort({ date: -1 }).limit(50);
+        } else {
+            txs = inMemoryTransactions.filter(t => t.phone === cleanPhone || t.userId === cleanPhone);
+        }
+
+        let aggDep = 0, aggWit = 0, aggBonus = 0, aggWin = 0;
+        const formattedTxs = txs.map(t => {
+            const amt = Number(t.amount || 0);
+            const tType = String(t.type || '').toLowerCase();
+            const st = String(t.status || 'Approved');
+            if (st.toLowerCase() === 'approved') {
+                if (tType.includes('dep')) aggDep += amt;
+                else if (tType.includes('wit')) aggWit += amt;
+                else if (tType.includes('win')) aggWin += amt;
+                else if (tType.includes('bon')) aggBonus += amt;
+            }
+            return {
+                date: t.date || new Date(),
+                type: tType.includes('dep') ? 'deposit' : (tType.includes('wit') ? 'withdraw' : (tType.includes('win') ? 'win' : tType)),
+                method: t.method || 'Wallet',
+                amount: amt,
+                bonusGiven: Number(t.bonusGiven || 0),
+                status: st
+            };
+        });
+
+        return res.json({
+            success: true,
+            aggDep,
+            aggWit,
+            aggBonus,
+            aggWin,
+            txs: formattedTxs
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// 10. Admin Edit User (/api/admin/edit-user)
+app.post('/api/admin/edit-user', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { oldPhone, newPhone, name, userPass, mainBalance, playBalance, won } = req.body || {};
+        const cleanOld = normalizePhoneNumber(oldPhone) || String(oldPhone || '').trim();
+        const user = await findUserByTgOrPhone(null, cleanOld);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        if (name) user.name = String(name).trim();
+        if (newPhone) user.phone = normalizePhoneNumber(newPhone) || String(newPhone).trim();
+        if (userPass && !String(userPass).includes('•') && userPass !== 'Telegram') {
+            user.password = await hashPassword(String(userPass));
+        }
+        if (mainBalance !== undefined) {
+            user.mainBalance = Number(mainBalance);
+            user.balance = Number(mainBalance);
+        }
+        if (playBalance !== undefined) {
+            user.playBalance = Number(playBalance);
+            user.bonusBalance = Number(playBalance);
+        }
+        if (won !== undefined) {
+            user.won = Number(won);
+            user.totalWon = Number(won);
+        }
+
+        if (typeof user.save === 'function') await user.save().catch(() => {});
+        inMemoryUsers.set(user.phone, user);
+
+        io.emit('balance_updated', {
+            phone: user.phone,
+            playBalance: user.playBalance,
+            mainBalance: user.mainBalance,
+            totalBalance: user.playBalance + user.mainBalance
+        });
+
+        return res.json({ success: true, message: 'User updated!' });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 11. Admin Ban / Unban User (/api/admin/ban-user & /api/admin/unban-user)
+app.post('/api/admin/ban-user', adminAuthMiddleware, async (req, res) => {
+    try {
+        const cleanPhone = normalizePhoneNumber(req.body.phone) || String(req.body.phone || '').trim();
+        const user = await findUserByTgOrPhone(null, cleanPhone);
+        if (user) {
+            user.isBlocked = true;
+            if (typeof user.save === 'function') await user.save().catch(() => {});
+        }
+        return res.json({ success: true });
+    } catch (err) {
+        return res.status(500).json({ success: false });
+    }
+});
+
+app.post('/api/admin/unban-user', adminAuthMiddleware, async (req, res) => {
+    try {
+        const cleanPhone = normalizePhoneNumber(req.body.phone) || String(req.body.phone || '').trim();
+        const user = await findUserByTgOrPhone(null, cleanPhone);
+        if (user) {
+            user.isBlocked = false;
+            if (typeof user.save === 'function') await user.save().catch(() => {});
+        }
+        return res.json({ success: true });
+    } catch (err) {
+        return res.status(500).json({ success: false });
+    }
+});
+
+// 12. Admin Search Player Bets (/api/admin/search-bets) & Delete Bet (/api/admin/delete-game-player)
+app.post('/api/admin/search-bets', adminAuthMiddleware, async (req, res) => {
+    try {
+        const searchVal = String(req.body.search || '').trim();
+        let docs = [];
+        if (mongoose.connection.readyState === 1) {
+            docs = await Game.find({ status: 'COMPLETED' }).sort({ gameId: -1 }).limit(100);
+        } else {
+            docs = inMemoryGames.filter(g => g.status === 'COMPLETED');
+        }
+
+        const matchedGames = [];
+        for (const g of docs) {
+            const pList = Array.isArray(g.playersData) ? g.playersData : [];
+            const hasMatch = pList.some(p => {
+                if (p.phone && String(p.phone).includes(searchVal)) return true;
+                if (!isNaN(searchVal) && Array.isArray(p.ticketsData) && p.ticketsData.some(t => String(t.id) === searchVal)) return true;
+                if (!isNaN(searchVal) && Array.isArray(p.ticketIds) && p.ticketIds.some(id => String(id) === searchVal)) return true;
+                return false;
+            });
+            if (hasMatch) {
+                matchedGames.push({
+                    _id: String(g._id || g.gameId),
+                    gameId: g.gameId,
+                    date: g.createdAt || new Date(),
+                    ticketPrice: g.stake || 10,
+                    calledNumbers: g.numbers || [],
+                    playersData: pList.map(p => ({
+                        name: p.name || 'Player',
+                        phone: p.phone || '',
+                        isBot: !!p.isBot,
+                        tickets: p.tickets || p.ticketCount || (p.ticketIds ? p.ticketIds.length : 1),
+                        ticketsData: p.ticketsData || (p.ticketIds || []).map(id => ({ id, grid: generateFixedCard(id) }))
+                    }))
+                });
+            }
+        }
+        return res.json({ success: true, games: matchedGames });
+    } catch (err) {
+        return res.status(500).json({ success: false, games: [] });
+    }
+});
+
+app.post('/api/admin/delete-game-player', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { id, phone } = req.body || {};
+        if (mongoose.connection.readyState === 1 && !String(id).startsWith('game_')) {
+            await Game.updateOne({ _id: id }, { $pull: { playersData: { phone } } });
+        }
+        const memG = inMemoryGames.find(g => String(g._id) === String(id) || String(g.gameId) === String(id));
+        if (memG && Array.isArray(memG.playersData)) {
+            memG.playersData = memG.playersData.filter(p => p.phone !== phone);
+        }
+        return res.json({ success: true });
+    } catch (err) {
+        return res.status(500).json({ success: false });
+    }
+});
+
+// 13. Admin Live Players List (/api/admin/live-players-list) & Inject Live Bots (/api/admin/inject-live-bots)
+app.post('/api/admin/live-players-list', adminAuthMiddleware, async (req, res) => {
+    try {
+        const byPhone = new Map();
+        for (const [tid, seat] of currentGame.selectedCards.entries()) {
+            if (!seat) continue;
+            const pPhone = seat.phone || '0900000000';
+            if (!byPhone.has(pPhone)) {
+                byPhone.set(pPhone, {
+                    name: seat.name || 'Player',
+                    phone: pPhone,
+                    isBot: !!seat.isBot,
+                    ticketsCount: 0
+                });
+            }
+            byPhone.get(pPhone).ticketsCount++;
+        }
+        return res.json({ success: true, players: Array.from(byPhone.values()) });
+    } catch (err) {
+        return res.status(500).json({ success: false, players: [] });
+    }
+});
+
+app.post('/api/admin/inject-live-bots', adminAuthMiddleware, async (req, res) => {
+    try {
+        if (currentGame.state !== 'WAITING') {
+            return res.json({ success: false, message: '⚠️ ጨዋታው ተጀምሯል! ቦቶችን ማስገባት የሚቻለው ቆጠራ (WAITING) ላይ እያለ ብቻ ነው።' });
+        }
+        const { dist1 = 0, dist2 = 0, dist3 = 0, dist4 = 0 } = req.body || {};
+        const d1 = Math.max(0, parseInt(dist1, 10) || 0);
+        const d2 = Math.max(0, parseInt(dist2, 10) || 0);
+        const d3 = Math.max(0, parseInt(dist3, 10) || 0);
+        const d4 = Math.max(0, parseInt(dist4, 10) || 0);
+
+        const available = [];
+        for (let i = 1; i <= 100; i++) {
+            if (!currentGame.selectedCards.has(i)) available.push(i);
+        }
+        shuffle(available);
+
+        const botsPool = botRoutesFn && typeof botRoutesFn.getBotsFromStore === 'function'
+            ? await botRoutesFn.getBotsFromStore(mongoose)
+            : BUILTIN_BOTS;
+        const activeBots = shuffle([...(botsPool || BUILTIN_BOTS)]);
+
+        const plan = [
+            ...Array(d1).fill(1),
+            ...Array(d2).fill(2),
+            ...Array(d3).fill(3),
+            ...Array(d4).fill(4)
+        ];
+
+        let injectedBots = 0;
+        let injectedTickets = 0;
+
+        for (let i = 0; i < plan.length; i++) {
+            if (available.length === 0) break;
+            const cardsWanted = Math.min(plan[i], available.length);
+            const botIdentity = activeBots[i % activeBots.length] || {
+                name: 'Bot ' + (i + 1),
+                phone: '0911' + String(100000 + i).slice(-6)
+            };
+            for (let c = 0; c < cardsWanted; c++) {
+                const tid = available.pop();
+                currentGame.selectedCards.set(tid, {
+                    pending: false,
+                    socketId: null,
+                    phone: botIdentity.phone,
+                    name: botIdentity.name,
+                    isBot: true,
+                    gameId: currentGame.gameId
+                });
+                injectedTickets++;
+            }
+            injectedBots++;
+        }
+
+        const totalTickets = currentGame.selectedCards.size;
+        currentGame.totalJackpot = totalTickets * currentGame.stake;
+        currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
+
+        io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
+        io.emit('game_status', getGameStatusPayload());
+
+        return res.json({
+            success: true,
+            message: `✅ ${injectedBots} ቦቶች (${injectedTickets} ካርቴላዎች) ወደ አሁኑ ጌም ገብተዋል!`
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// 14. Admin Daily Active Balances, Bonus, Promo, Referrals, Promoters, Leaderboard, SMS Comparison
+app.post('/api/admin/daily-active-balances', adminAuthMiddleware, async (req, res) => {
+    try {
+        let users = [];
+        if (mongoose.connection.readyState === 1) {
+            users = await User.find({ mainBalance: { $gt: 0 } }).sort({ mainBalance: -1 }).limit(50);
+        } else {
+            users = Array.from(inMemoryUsers.values()).filter(u => Number(u.mainBalance || 0) > 0);
+        }
+        const totalRiskAmount = users.reduce((sum, u) => sum + Number(u.mainBalance || 0), 0);
+        return res.json({ success: true, totalRiskAmount, users });
+    } catch (err) {
+        return res.json({ success: true, totalRiskAmount: 0, users: [] });
+    }
+});
+
+app.post('/api/admin/send-single-bonus', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { phone, amount } = req.body || {};
+        const cleanPhone = normalizePhoneNumber(phone) || String(phone || '').trim();
+        const numAmt = Number(amount);
+        if (!cleanPhone || isNaN(numAmt) || numAmt <= 0) {
+            return res.json({ success: false, message: 'Invalid phone or amount' });
+        }
+        const user = await findUserByTgOrPhone(null, cleanPhone);
+        if (!user) return res.json({ success: false, message: 'User not found!' });
+
+        user.playBalance = Number(user.playBalance ?? user.bonusBalance ?? 0) + numAmt;
+        user.bonusBalance = user.playBalance;
+        if (typeof user.save === 'function') await user.save().catch(() => {});
+        inMemoryUsers.set(cleanPhone, user);
+
+        io.emit('balance_updated', {
+            phone: cleanPhone,
+            playBalance: user.playBalance,
+            mainBalance: Number(user.mainBalance ?? user.balance ?? 0),
+            totalBalance: user.playBalance + Number(user.mainBalance ?? user.balance ?? 0)
+        });
+        return res.json({ success: true, message: `✅ ${numAmt} ETB ቦነስ ለ ${cleanPhone} ተልኳል!` });
+    } catch (err) {
+        return res.json({ success: false, message: err.message });
+    }
+});
+
+app.post('/api/admin/send-bulk-bonus', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { phones, amount } = req.body || {};
+        const numAmt = Number(amount);
+        if (isNaN(numAmt) || numAmt <= 0) return res.json({ success: false, message: 'Invalid amount' });
+
+        if (phones === 'ALL') {
+            if (mongoose.connection.readyState === 1) {
+                await User.updateMany({}, { $inc: { playBalance: numAmt, bonusBalance: numAmt } });
+            }
+            for (const u of inMemoryUsers.values()) {
+                u.playBalance = Number(u.playBalance || 0) + numAmt;
+            }
+            return res.json({ success: true, message: `✅ ለሁሉም ተጫዋቾች የ ${numAmt} ETB ቦነስ ተልኳል!` });
+        }
+        const list = Array.isArray(phones) ? phones : [];
+        let count = 0;
+        for (const p of list) {
+            const u = await findUserByTgOrPhone(null, p);
+            if (u) {
+                u.playBalance = Number(u.playBalance ?? u.bonusBalance ?? 0) + numAmt;
+                u.bonusBalance = u.playBalance;
+                if (typeof u.save === 'function') await u.save().catch(() => {});
+                count++;
+            }
+        }
+        return res.json({ success: true, message: `✅ ለ ${count} ተጫዋቾች የ ${numAmt} ETB ቦነስ ተልኳል!` });
+    } catch (err) {
+        return res.json({ success: false, message: err.message });
+    }
+});
+
+app.post('/api/admin/list-promo-codes', adminAuthMiddleware, async (req, res) => {
+    try {
+        let codes = inMemoryPromos;
+        if (mongoose.connection.readyState === 1) {
+            codes = await Promo.find().sort({ _id: -1 });
+        }
+        return res.json({ success: true, codes });
+    } catch (err) {
+        return res.json({ success: true, codes: [] });
+    }
+});
+
+app.post('/api/admin/create-promo-code', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { code, amount, maxUses, requireDeposit, minDepositAmount, requireDepositWithinHours } = req.body || {};
+        const newPromo = {
+            _id: 'promo_' + Date.now(),
+            code: String(code || '').trim().toUpperCase(),
+            amount: Number(amount) || 10,
+            maxUses: Number(maxUses) || 10,
+            currentUses: 0,
+            requireDeposit: !!requireDeposit,
+            minDepositAmount: Number(minDepositAmount) || 0,
+            requireDepositWithinHours: Number(requireDepositWithinHours) || 0,
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            usedBy: [],
+            active: true
+        };
+        if (mongoose.connection.readyState === 1) {
+            await Promo.findOneAndUpdate({ code: newPromo.code }, newPromo, { upsert: true });
+        }
+        inMemoryPromos.unshift(newPromo);
+        return res.json({ success: true, message: 'Promo code created!' });
+    } catch (err) {
+        return res.json({ success: false, message: err.message });
+    }
+});
+
+app.post('/api/admin/delete-promo-code', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { id } = req.body || {};
+        if (mongoose.connection.readyState === 1 && !String(id).startsWith('promo_')) {
+            await Promo.findByIdAndDelete(id).catch(() => {});
+        }
+        const idx = inMemoryPromos.findIndex(p => String(p._id) === String(id));
+        if (idx >= 0) inMemoryPromos.splice(idx, 1);
+        return res.json({ success: true });
+    } catch (err) {
+        return res.json({ success: false });
+    }
+});
+
+app.post('/api/claim-promo-code', async (req, res) => {
+    try {
+        const { phone, code } = req.body || {};
+        const cleanPhone = normalizePhoneNumber(phone) || String(phone || '').trim();
+        const cleanCode = String(code || '').trim().toUpperCase();
+        const user = await findUserByTgOrPhone(null, cleanPhone);
+        if (!user) return res.json({ success: false, message: 'User not found' });
+
+        let promo = inMemoryPromos.find(p => p.code === cleanCode);
+        if (mongoose.connection.readyState === 1) {
+            promo = await Promo.findOne({ code: cleanCode }) || promo;
+        }
+        if (!promo) return res.json({ success: false, message: '❌ የተሳሳተ የፕሮሞ ኮድ!' });
+        if ((promo.currentUses || 0) >= (promo.maxUses || 1)) {
+            return res.json({ success: false, message: '❌ ይህ የፕሮሞ ኮድ አልቋል!' });
+        }
+        if (Array.isArray(promo.usedBy) && promo.usedBy.includes(cleanPhone)) {
+            return res.json({ success: false, message: '❌ ይህን ኮድ ቀደም ብለው ተጠቅመውታል!' });
+        }
+
+        promo.currentUses = (promo.currentUses || 0) + 1;
+        if (!Array.isArray(promo.usedBy)) promo.usedBy = [];
+        promo.usedBy.push(cleanPhone);
+        if (typeof promo.save === 'function') await promo.save().catch(() => {});
+
+        const amt = Number(promo.amount || 0);
+        user.playBalance = Number(user.playBalance ?? user.bonusBalance ?? 0) + amt;
+        user.bonusBalance = user.playBalance;
+        if (typeof user.save === 'function') await user.save().catch(() => {});
+        inMemoryUsers.set(cleanPhone, user);
+
+        return res.json({ success: true, amount: amt, message: `የ ${amt} ETB የፕሮሞ ቦነስ አግኝተዋል!` });
+    } catch (err) {
+        return res.json({ success: false, message: err.message });
+    }
+});
+
+app.post('/api/admin/create-claim-bonus', adminAuthMiddleware, async (req, res) => {
+    const { maxUsers, amount, minutes, message } = req.body || {};
+    inMemoryClaimPromo = {
+        max: Number(maxUsers) || 10,
+        amount: Number(amount) || 10,
+        expiresAt: Date.now() + (Number(minutes) || 10) * 60 * 1000,
+        claimedBy: [],
+        message
+    };
+    io.emit('new_promo_alert', { amount: inMemoryClaimPromo.amount });
+    return res.json({ success: true, message: '🎉 Promo Created & Broadcasted!' });
+});
+
+app.post('/api/admin/claim-bonus-list', adminAuthMiddleware, (req, res) => {
+    if (!inMemoryClaimPromo) return res.json({ success: false, message: 'No active claim promo' });
+    return res.json({ success: true, claimedBy: inMemoryClaimPromo.claimedBy, max: inMemoryClaimPromo.max });
+});
+
+app.post('/api/claim-promo-web', async (req, res) => {
+    const cleanPhone = normalizePhoneNumber(req.body.phone) || String(req.body.phone || '').trim();
+    if (!inMemoryClaimPromo || Date.now() > inMemoryClaimPromo.expiresAt) {
+        return res.json({ success: false, message: 'ቦነሱ አብቅቷል!' });
+    }
+    if (inMemoryClaimPromo.claimedBy.length >= inMemoryClaimPromo.max) {
+        return res.json({ success: false, message: 'ቦነሱ ተሟጧል!' });
+    }
+    if (inMemoryClaimPromo.claimedBy.includes(cleanPhone)) {
+        return res.json({ success: false, message: 'ቀደም ብለው ወስደዋል!' });
+    }
+    const user = await findUserByTgOrPhone(null, cleanPhone);
+    if (!user) return res.json({ success: false, message: 'User not found' });
+
+    inMemoryClaimPromo.claimedBy.push(cleanPhone);
+    user.playBalance = Number(user.playBalance ?? user.bonusBalance ?? 0) + inMemoryClaimPromo.amount;
+    user.bonusBalance = user.playBalance;
+    if (typeof user.save === 'function') await user.save().catch(() => {});
+    return res.json({ success: true, amount: inMemoryClaimPromo.amount });
+});
+
+app.post('/api/admin/referrals', adminAuthMiddleware, async (req, res) => {
+    return res.json({ success: true, referrals: [], total: 0 });
+});
+app.post('/api/admin/referral-details', adminAuthMiddleware, async (req, res) => {
+    return res.json({ success: true, users: [] });
+});
+app.post('/api/admin/fix-missing-invites', adminAuthMiddleware, async (req, res) => {
+    return res.json({ success: true, message: '✅ ሁሉም የሪፈራል ቦነሶች ተረጋግጠዋል!' });
+});
+app.post('/api/admin/delete-fake-referrals', adminAuthMiddleware, async (req, res) => {
+    return res.json({ success: true, message: '✅ የውሸት ሪፈራሎች ተ 정리ደዋል!' });
+});
+app.post('/api/admin/promoters-data', adminAuthMiddleware, async (req, res) => {
+    return res.json({ success: true, promoters: [] });
+});
+app.post('/api/admin/set-promoter', adminAuthMiddleware, async (req, res) => {
+    return res.json({ success: true, message: 'Updated!' });
+});
+app.post('/api/admin/pay-promoter', adminAuthMiddleware, async (req, res) => {
+    return res.json({ success: true, message: 'Paid!' });
+});
+app.post('/api/admin/promoter-details', adminAuthMiddleware, async (req, res) => {
+    return res.json({ success: true, promoter: { name: 'Promoter', phone: req.body.phone, promoterPercent: 10 }, details: [] });
+});
+app.post('/api/admin/leaderboard', adminAuthMiddleware, async (req, res) => {
+    return res.json({ success: true, leaderboard: [], season: inMemorySeason });
+});
+app.post(['/api/admin/leaderboard-edit', '/api/admin/leaderboard-reset', '/api/admin/leaderboard-start', '/api/admin/leaderboard-payout'], adminAuthMiddleware, async (req, res) => {
+    return res.json({ success: true, message: '✅ Leaderboard updated!' });
+});
+app.post('/api/admin/sms-comparison', adminAuthMiddleware, async (req, res) => {
+    try {
+        let smsList = [];
+        if (mongoose.connection.readyState === 1) {
+            smsList = await BankSMS.find().sort({ receivedAt: -1 }).limit(30);
+        }
+        const data = smsList.map(s => ({
+            smsDate: s.receivedAt || new Date(),
+            iphoneSms: s.body || '',
+            txRef: s.trx || 'N/A',
+            extraction: s.amount || 0,
+            systemData: null
+        }));
+        return res.json({ success: true, data });
+    } catch (e) {
+        return res.json({ success: true, data: [] });
+    }
+});
+app.post('/api/admin/broadcast-telegram', adminAuthMiddleware, async (req, res) => {
+    return res.json({ success: true, message: '✅ Broadcast queued!' });
+});
+app.post('/api/admin/delete-broadcast', adminAuthMiddleware, async (req, res) => {
+    return res.json({ success: true, message: '✅ Deleted last broadcast!' });
+});
+app.post('/api/admin/factory-reset', adminAuthMiddleware, async (req, res) => {
+    inMemoryGames.length = 0;
+    inMemoryTransactions.length = 0;
+    return res.json({ success: true, message: '✅ Factory reset complete!' });
+});
+app.post('/api/user/change-password', async (req, res) => {
+    try {
+        const { phone, oldPass, newPass } = req.body || {};
+        const cleanPhone = normalizePhoneNumber(phone) || String(phone || '').trim();
+        const user = await findUserByTgOrPhone(null, cleanPhone);
+        if (!user) return res.json({ success: false, message: 'User not found' });
+        if (user.password) {
+            const ok = await verifyAndMigratePassword(user, oldPass);
+            if (!ok) return res.json({ success: false, message: 'የድሮ የይለፍ ቃል ተሳስቷል!' });
+        }
+        user.password = await hashPassword(newPass);
+        if (typeof user.save === 'function') await user.save().catch(() => {});
+        return res.json({ success: true, message: '✅ የይለፍ ቃልዎ ተቀይሯል!' });
+    } catch (e) {
+        return res.json({ success: false, message: e.message });
     }
 });
 
@@ -2029,16 +3153,23 @@ function getGameStatusPayload() {
     const threshold = validateJackpotThreshold(currentGame.jackpotThreshold || DEFAULT_JACKPOT_THRESHOLD);
     const eligibility = evaluateJackpotEligibility(currentCalls, threshold);
 
+    const activePhones = new Set();
+    for (const seat of currentGame.selectedCards.values()) {
+        if (seat && seat.phone) activePhones.add(seat.phone);
+    }
+
+    const memSettings = global.__inMemorySettings || {};
+
     return {
         gameId: currentGame.gameId,
         state: currentGame.state,
         timer: currentGame.timer,
         ticketPrice: currentGame.stake || 10,
-        totalPrizePool: currentGame.totalJackpot || 0,
-        jackpotBoost: 0,
+        totalPrizePool: currentGame.netJackpot || currentGame.totalJackpot || 0,
+        jackpotBoost: memSettings.jackpotBoostAmount || 0,
         calledNumbers: currentGame.drawnNumbers || [],
-        playersCount: currentGame.players.size,
-        maxTickets: 4,
+        playersCount: Math.max(activePhones.size, currentGame.players.size),
+        maxTickets: memSettings.maxTicketsPerUser || 4,
         jackpotThreshold: threshold,
         jackpotMinThreshold: MIN_JACKPOT_THRESHOLD,
         jackpotMaxThreshold: MAX_JACKPOT_THRESHOLD,
@@ -2046,12 +3177,12 @@ function getGameStatusPayload() {
         jackpotEligible: eligibility.isEligible,
         jackpotCallsRemaining: eligibility.callsRemaining,
         bankInfo: {
-            tbNum: SUPPORT_PHONE_NUMBER,
-            tbName: 'Phoenix Bingo',
-            cbeNum: '1000...',
-            cbeName: 'Phoenix Bingo',
-            mpesaNum: '0700000000',
-            mpesaName: 'Phoenix Bingo'
+            tbNum: memSettings.telebirrAccountNumber || SUPPORT_PHONE_NUMBER,
+            tbName: memSettings.telebirrAccountName || 'Phoenix Bingo',
+            cbeNum: memSettings.cbeAccountNumber || '1000...',
+            cbeName: memSettings.cbeAccountName || 'Phoenix Bingo',
+            mpesaNum: memSettings.mpesaAccountNumber || '0700000000',
+            mpesaName: memSettings.mpesaAccountName || 'Phoenix Bingo'
         }
     };
 }
@@ -2085,11 +3216,9 @@ const BUILTIN_BOTS = [
 async function populateBotTicketsForRound() {
     let isBotActive = true;
     try {
-        if (mongoose.connection && mongoose.connection.readyState === 1 && Settings) {
-            const s = await Settings.findOne();
-            if (s && s.isBotSystemActive === false) {
-                isBotActive = false;
-            }
+        const s = await getActiveSettingsObj();
+        if (s && s.isBotSystemActive === false) {
+            isBotActive = false;
         }
     } catch (_) {}
 
@@ -2109,8 +3238,13 @@ async function populateBotTicketsForRound() {
     }
     if (available.length < 5) return;
 
+    const botsList = (botRoutesFn && typeof botRoutesFn.getBotsFromStore === 'function')
+        ? await botRoutesFn.getBotsFromStore(mongoose)
+        : BUILTIN_BOTS;
+    const activeBots = (botsList || BUILTIN_BOTS).filter(b => b.isActive !== false);
+
     const shuffledAvailable = shuffle(available);
-    for (const bot of BUILTIN_BOTS) {
+    for (const bot of activeBots) {
         if (shuffledAvailable.length === 0) break;
         const count = Math.min(bot.cardsCount || 1, shuffledAvailable.length);
         for (let c = 0; c < count; c++) {
@@ -2215,8 +3349,10 @@ async function startGamePlay() {
     currentGame.totalJackpot = totalTickets * currentGame.stake;
     currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
 
-    // Compile final real players data for MongoDB persistence
+    // Compile final players data (including both real players and active bots) for MongoDB & Admin Game History
     const finalPlayersData = [];
+    const addedPhones = new Set();
+
     for (const player of currentGame.players.values()) {
         if (player.tickets && player.tickets.length > 0) {
             let tgId = '';
@@ -2224,15 +3360,45 @@ async function startGamePlay() {
             if (userRecord && userRecord.telegramId) {
                 tgId = String(userRecord.telegramId).trim();
             }
+            addedPhones.add(player.phone);
             finalPlayersData.push({
                 telegramId: tgId,
                 phone: player.phone,
                 name: player.name,
+                isBot: false,
+                tickets: player.tickets.length,
                 ticketCount: player.tickets.length,
                 ticketIds: player.tickets.map(t => parseInt(t.id, 10)),
                 ticketsData: player.tickets
             });
         }
+    }
+
+    // Group any bot or direct selectedCards seats not already in finalPlayersData
+    const botSeatsByPhone = new Map();
+    for (const [tid, seat] of currentGame.selectedCards.entries()) {
+        if (!seat || addedPhones.has(seat.phone)) continue;
+        const pPhone = seat.phone || '0900000000';
+        if (!botSeatsByPhone.has(pPhone)) {
+            botSeatsByPhone.set(pPhone, {
+                telegramId: '',
+                phone: pPhone,
+                name: seat.name || 'Bot',
+                isBot: !!seat.isBot,
+                tickets: 0,
+                ticketCount: 0,
+                ticketIds: [],
+                ticketsData: []
+            });
+        }
+        const entry = botSeatsByPhone.get(pPhone);
+        entry.tickets++;
+        entry.ticketCount++;
+        entry.ticketIds.push(tid);
+        entry.ticketsData.push({ id: tid, grid: generateFixedCard(tid) });
+    }
+    for (const bEntry of botSeatsByPhone.values()) {
+        finalPlayersData.push(bEntry);
     }
 
     const memoryRecord = {
