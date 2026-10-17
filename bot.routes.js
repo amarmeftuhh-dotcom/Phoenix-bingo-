@@ -18,21 +18,30 @@ module.exports = function(SystemSettings, loadSettings, auth) {
 
     // 2. Admin ላይ የሚስተካከለውን Bot Settings ሴቭ የሚያደርገው (የነበረው)
     // እዚህ ውስጥ isBotSystemActive (On/Off) እና botWinnerForce (Bot or Real User) አሉ።
-    router.post('/bot-master-update', auth, async (req, res) => {
+    router.post(['/bot-master-update', '/bot-master-update-v2'], auth, async (req, res) => {
         try {
             let s = await SystemSettings.findOne();
-            s.isBotSystemActive = req.body.isBotSystemActive; // ሙሉ ሲስተሙን On/Off ማድረጊያ
-            s.botWinnerForce = req.body.botWinnerForce;       // ማሸነፍ ያለበትን መምረጫ ("bot", "real", "none")
-            s.botDist1 = req.body.botDist1;
-            s.botDist2 = req.body.botDist2;
-            s.botDist3 = req.body.botDist3;
-            s.botDist4 = req.body.botDist4;
+            if (!s) {
+                s = new SystemSettings();
+            }
+            if (req.body.isBotSystemActive !== undefined) s.isBotSystemActive = req.body.isBotSystemActive;
+            if (req.body.botWinnerForce !== undefined) s.botWinnerForce = req.body.botWinnerForce;
+            if (req.body.mixBotCount !== undefined) s.mixBotCount = req.body.mixBotCount;
+            if (req.body.botDist1 !== undefined) s.botDist1 = req.body.botDist1;
+            if (req.body.botDist2 !== undefined) s.botDist2 = req.body.botDist2;
+            if (req.body.botDist3 !== undefined) s.botDist3 = req.body.botDist3;
+            if (req.body.botDist4 !== undefined) s.botDist4 = req.body.botDist4;
+            if (req.body.isBotScheduleActive !== undefined) s.isBotScheduleActive = req.body.isBotScheduleActive;
             
-            await s.save();
-            await loadSettings(); // አዲሱን Setting Update እንዲያደርግ
+            if (typeof s.save === 'function') {
+                await s.save();
+            }
+            if (typeof loadSettings === 'function') {
+                await loadSettings();
+            }
             res.json({ success: true });
         } catch(e) { 
-            res.json({ success: false }); 
+            res.json({ success: false, error: e.message }); 
         }
     });
 

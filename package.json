@@ -8,7 +8,7 @@
     "start": "node --max-old-space-size=450 server.js",
     "build": "node -c server.js",
     "lint": "node -c server.js bot.model.js bot.routes.js lib/bingoRules.js lib/platformRules.js lib/walletManager.js",
-    "test": "node test/productionModuleImports.test.js && node test/platformRules.test.js && node test/bingoRules.test.js && node test/cartelaLifecycle.test.js && node test/gameHistory.test.js && node test/activeTicketsSecurity.test.js && node test/e2eWinningPatterns.test.js && node test/walletAndPayoutSecurity.test.js && node test/phase3Remediation.test.js && node test/phase5SecurityHardening.test.js && node test/gameCountdownAndRounds.test.js"
+    "test": "node test/productionModuleImports.test.js && node test/platformRules.test.js && node test/bingoRules.test.js && node test/cartelaLifecycle.test.js && node test/gameHistory.test.js && node test/activeTicketsSecurity.test.js && node test/e2eWinningPatterns.test.js && node test/walletAndPayoutSecurity.test.js && node test/phase3Remediation.test.js && node test/phase5SecurityHardening.test.js && node test/gameCountdownAndRounds.test.js && node test/winnerResolutionAfter16Calls.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
