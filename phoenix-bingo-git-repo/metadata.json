@@ -1,6 +1,0 @@
-{
-  "name": "Phoenix Bingo - Ultimate Live VIP Casino",
-  "description": "The premier Ethiopian multiplayer Bingo platform featuring real-time multiplayer draws, VIP cards, live jackpot, Telegram webapp, and admin management.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
