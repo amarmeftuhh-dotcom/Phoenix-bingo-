@@ -996,6 +996,7 @@ const adminAuthMiddleware = (req, res, next) => {
 
 const botRoutesFn = typeof botRoutes === 'function' ? botRoutes(Settings, async () => {}, adminAuthMiddleware) : botRoutes;
 app.use('/api/bot', adminAuthMiddleware, botRoutesFn);
+app.use('/api/admin', adminAuthMiddleware, botRoutesFn);
 
 // Optional Telegram Webhook endpoint (enables webhook updates alongside or instead of polling)
 app.post('/api/telegram/webhook', (req, res) => {
@@ -2053,6 +2054,77 @@ function shuffle(array) {
     return array;
 }
 
+const BUILTIN_BOTS = [
+    { name: "አበበ", phone: "0911234501", cardsCount: 2 },
+    { name: "ጫላ", phone: "0911234502", cardsCount: 1 },
+    { name: "አስቴር", phone: "0911234503", cardsCount: 2 },
+    { name: "ሄኖክ", phone: "0911234504", cardsCount: 3 },
+    { name: "ዳዊት", phone: "0911234505", cardsCount: 1 },
+    { name: "ማክዳ", phone: "0911234506", cardsCount: 2 },
+    { name: "ዮሴፍ", phone: "0911234507", cardsCount: 3 },
+    { name: "ቃልኪዳን", phone: "0911234508", cardsCount: 1 },
+    { name: "ሳሙኤል", phone: "0911234509", cardsCount: 2 },
+    { name: "ቤዛዊት", phone: "0911234510", cardsCount: 2 },
+    { name: "አለሙ", phone: "0911234511", cardsCount: 1 },
+    { name: "ተስፋዬ", phone: "0911234512", cardsCount: 2 },
+    { name: "መሰረት", phone: "0911234513", cardsCount: 1 },
+    { name: "ሀና", phone: "0911234514", cardsCount: 2 },
+    { name: "ዮናስ", phone: "0911234515", cardsCount: 1 }
+];
+
+async function populateBotTicketsForRound() {
+    let isBotActive = true;
+    try {
+        if (mongoose.connection && mongoose.connection.readyState === 1 && Settings) {
+            const s = await Settings.findOne();
+            if (s && s.isBotSystemActive === false) {
+                isBotActive = false;
+            }
+        }
+    } catch (_) {}
+
+    if (!isBotActive) return;
+
+    let existingBotTickets = 0;
+    for (const seat of currentGame.selectedCards.values()) {
+        if (seat && seat.isBot) existingBotTickets++;
+    }
+    if (existingBotTickets >= 15) return;
+
+    const available = [];
+    for (let i = 1; i <= 100; i++) {
+        if (!currentGame.selectedCards.has(i)) {
+            available.push(i);
+        }
+    }
+    if (available.length < 5) return;
+
+    const shuffledAvailable = shuffle(available);
+    for (const bot of BUILTIN_BOTS) {
+        if (shuffledAvailable.length === 0) break;
+        const count = Math.min(bot.cardsCount || 1, shuffledAvailable.length);
+        for (let c = 0; c < count; c++) {
+            const tid = shuffledAvailable.pop();
+            currentGame.selectedCards.set(tid, {
+                pending: false,
+                socketId: null,
+                phone: bot.phone,
+                name: bot.name,
+                isBot: true,
+                gameId: currentGame.gameId
+            });
+        }
+        if (currentGame.selectedCards.size >= 24) break;
+    }
+
+    const totalTickets = currentGame.selectedCards.size;
+    currentGame.totalJackpot = totalTickets * currentGame.stake;
+    currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
+
+    io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
+    io.emit('game_status', getGameStatusPayload());
+}
+
 let countdownInterval = null;
 
 function startCountdown(forceRestart = false) {
@@ -2087,6 +2159,10 @@ function startCountdown(forceRestart = false) {
         currentGame.timer = Math.max(0, (currentGame.timer || 0) - 1);
         io.emit('game_status', getGameStatusPayload());
         io.emit('countdown', currentGame.timer);
+
+        if (currentGame.timer === 35 || currentGame.timer === 20) {
+            populateBotTicketsForRound().catch(() => {});
+        }
 
         if (currentGame.timer <= 0) {
             if (countdownInterval) {
@@ -2233,6 +2309,78 @@ async function startGamePlay() {
         io.emit('new_number', drawn);
         io.emit('numberDrawn', { number: drawn, history: currentGame.drawnNumbers });
 
+        const callsCount = currentGame.drawnNumbers.length;
+
+        // Authoritative winner detection after 16 calls (calls 17, 18 ... up to 75)
+        if (callsCount >= 17 && currentGame.state === 'PLAYING') {
+            const foundWinners = [];
+            for (const [tid, seat] of currentGame.selectedCards.entries()) {
+                const grid = generateFixedCard(tid);
+                const winCheck = checkWinningPatterns(grid, currentGame.drawnNumbers);
+                if (winCheck && winCheck.isWin) {
+                    foundWinners.push({
+                        ticketId: tid,
+                        seat: seat,
+                        pattern: winCheck
+                    });
+                }
+            }
+
+            if (foundWinners.length > 0) {
+                if (currentGame.drawInterval) {
+                    clearInterval(currentGame.drawInterval);
+                    currentGame.drawInterval = null;
+                }
+
+                currentGame.state = 'RESOLVING_WINNERS';
+                currentGame.claimResolutionWindowOpen = true;
+                currentGame.resolvedCallCount = currentGame.drawnNumbers.length;
+                currentGame.resolvedGameId = currentGame.gameId;
+
+                if (!currentGame.pendingWinners) {
+                    currentGame.pendingWinners = new Map();
+                }
+
+                for (const w of foundWinners) {
+                    const playerRecord = w.seat.socketId ? currentGame.players.get(w.seat.socketId) : null;
+                    const winnerPhone = w.seat.phone || (playerRecord && playerRecord.phone) || '0900000000';
+                    const winnerName = w.seat.name || (playerRecord && playerRecord.name) || 'Winner';
+                    const isJackpotWin = evaluateJackpotEligibility(callsCount, currentGame.jackpotThreshold).isEligible;
+
+                    const claimData = {
+                        ok: true,
+                        code: 'CLAIM_VERIFIED',
+                        ticketId: w.ticketId,
+                        grid: generateFixedCard(w.ticketId),
+                        winningPattern: w.pattern,
+                        isJackpotWin,
+                        callsCount,
+                        jackpotThreshold: currentGame.jackpotThreshold,
+                        winnerPhone,
+                        winnerName,
+                        isBot: !!w.seat.isBot,
+                        seat: w.seat
+                    };
+
+                    currentGame.pendingWinners.set(winnerPhone, claimData);
+
+                    if (w.seat.socketId) {
+                        io.to(w.seat.socketId).emit('claim_accepted', {
+                            code: 'CLAIM_VERIFIED',
+                            message: 'የቢንጎ ጥያቄዎ በትክክል ተረጋግጧል! አሸናፊዎችን በማስላት ላይ... (Bingo verified! Resolving round...)'
+                        });
+                    }
+                }
+
+                if (!currentGame.claimResolutionTimer) {
+                    currentGame.claimResolutionTimer = setTimeout(async () => {
+                        await finalizeCurrentGameWinners();
+                    }, 2500);
+                }
+                return;
+            }
+        }
+
     }, 3000);
 
     if (currentGame.drawInterval && typeof currentGame.drawInterval.unref === 'function') {
@@ -2285,8 +2433,8 @@ async function endGame(winners, claimMeta, allClaimMetas) {
     const uniqueWinners = Array.from(new Set(rawWinners.map(w => normalizePhoneNumber(w) || String(w).trim()))).filter(Boolean);
     const winnerPhone = uniqueWinners.length > 0 ? uniqueWinners.join(', ') : '';
 
-    let winningTicketId = (claimMeta && claimMeta.winningTicketId) ? claimMeta.winningTicketId : 'N/A';
-    let winningGrid = (claimMeta && claimMeta.winningGrid) ? claimMeta.winningGrid : null;
+    let winningTicketId = (claimMeta && (claimMeta.winningTicketId || claimMeta.ticketId)) ? (claimMeta.winningTicketId || claimMeta.ticketId) : 'N/A';
+    let winningGrid = (claimMeta && (claimMeta.winningGrid || claimMeta.grid)) ? (claimMeta.winningGrid || claimMeta.grid) : null;
     let winnerName = (claimMeta && claimMeta.winnerName) ? claimMeta.winnerName : (winnerPhone || 'Player');
 
     // Look up winner details from current game players
@@ -2300,6 +2448,10 @@ async function endGame(winners, claimMeta, allClaimMetas) {
             }
             break;
         }
+    }
+
+    if (winningTicketId !== 'N/A' && !winningGrid) {
+        winningGrid = generateFixedCard(winningTicketId);
     }
 
     const isJackpotWin = Boolean(claimMeta && claimMeta.isJackpotWin);
@@ -2323,6 +2475,15 @@ async function endGame(winners, claimMeta, allClaimMetas) {
         let wPhone = foundPlayer ? (foundPlayer.phone || '') : w;
         let wName = foundPlayer ? (foundPlayer.name || 'Winner') : (w || 'Winner');
         let wTicketIds = foundPlayer && Array.isArray(foundPlayer.tickets) ? foundPlayer.tickets.map(t => parseInt(t.id, 10)) : [];
+        if (!foundPlayer) {
+            const matchingClaim = Array.isArray(allClaimMetas) ? allClaimMetas.find(c => c && c.winnerPhone === w) : null;
+            if (matchingClaim) {
+                wName = matchingClaim.winnerName || wName;
+                if (matchingClaim.ticketId && !wTicketIds.includes(matchingClaim.ticketId)) {
+                    wTicketIds.push(matchingClaim.ticketId);
+                }
+            }
+        }
         if (!wTgId && wPhone) {
             const cleanP = normalizePhoneNumber(wPhone);
             const memU = inMemoryUsers.get(cleanP) || inMemoryUsers.get(wPhone);

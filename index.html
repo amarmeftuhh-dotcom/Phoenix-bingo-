@@ -571,17 +571,6 @@
             <div class="golden-prize-box"><span id="lbl-t-prize">ደራሽ</span><b id="t-page-prize" style="color: #ffde82; text-shadow: 0 0 8px #f8b500, 0 0 15px #f8b500; font-size: 15px;">0.00 ETB</b></div>
         </div>
 
-        <!-- 🎯 JACKPOT CALL THRESHOLD & ELIGIBILITY COUNTDOWN 🎯 -->
-        <div id="jackpot-threshold-bar" style="background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 10px; padding: 6px 12px; margin: 4px 10px 8px 10px; display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
-            <div style="display:flex; align-items:center; gap:6px;">
-                <span style="font-size:14px;">🎯</span>
-                <span style="color:#94a3b8; font-weight:bold;" id="lbl-jp-target">ጃክፖት ገደብ:</span>
-                <b style="color:var(--gold); font-size:13px;" id="val-jp-target">16 Calls</b>
-            </div>
-            <div id="val-jp-countdown" style="font-weight:900; color:#4ade80; font-size:12px; letter-spacing:0.5px;">
-                🟢 16 calls left (Eligible)
-            </div>
-        </div>
 
         <div class="t-mb-toggle-bar">
             <span id="t-info">እስካሁን ካርቴላ አልመረጡም</span>
@@ -1941,6 +1930,54 @@
         }
     });
 
+    function isClientCellCovered(grid, col, row, calledSet) {
+        if (col === 2 && row === 2) return true;
+        const val = grid && grid[col] && grid[col][row];
+        if (val === 'FREE' || val === 'free') return true;
+        return calledSet.has(val);
+    }
+
+    function checkClientWinningPatterns(grid, calledList) {
+        if (!grid || !Array.isArray(grid) || grid.length !== 5) return false;
+        const calledSet = new Set(Array.isArray(calledList) ? calledList : []);
+        // 1. Horizontal rows
+        for (let r = 0; r < 5; r++) {
+            let rowComplete = true;
+            for (let c = 0; c < 5; c++) {
+                if (!isClientCellCovered(grid, c, r, calledSet)) { rowComplete = false; break; }
+            }
+            if (rowComplete) return true;
+        }
+        // 2. Vertical columns
+        for (let c = 0; c < 5; c++) {
+            let colComplete = true;
+            for (let r = 0; r < 5; r++) {
+                if (!isClientCellCovered(grid, c, r, calledSet)) { colComplete = false; break; }
+            }
+            if (colComplete) return true;
+        }
+        // 3. Main diagonal
+        let mainDiag = true;
+        for (let i = 0; i < 5; i++) {
+            if (!isClientCellCovered(grid, i, i, calledSet)) { mainDiag = false; break; }
+        }
+        if (mainDiag) return true;
+        // 4. Anti diagonal
+        let antiDiag = true;
+        for (let i = 0; i < 5; i++) {
+            if (!isClientCellCovered(grid, 4 - i, i, calledSet)) { antiDiag = false; break; }
+        }
+        if (antiDiag) return true;
+        // 5. Four corners
+        if (isClientCellCovered(grid, 0, 0, calledSet) &&
+            isClientCellCovered(grid, 4, 0, calledSet) &&
+            isClientCellCovered(grid, 0, 4, calledSet) &&
+            isClientCellCovered(grid, 4, 4, calledSet)) {
+            return true;
+        }
+        return false;
+    }
+
     socket.on('new_number', (num) => {
         if (!isGameRunningLocally) return;
         called.push(num); 
@@ -1960,6 +1997,16 @@
                 } 
             }
         });
+
+        // After 16 calls (draw 17+), check if any active player card has won and auto-claim
+        if (userTicketsData.length > 0 && Array.isArray(called) && called.length >= 17) {
+            for (const t of userTicketsData) {
+                if (t && Array.isArray(t.grid) && checkClientWinningPatterns(t.grid, called)) {
+                    claimBingoCard(t.id);
+                    break;
+                }
+            }
+        }
     });
 
     socket.on('game_winner', (data) => {
