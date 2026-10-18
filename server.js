@@ -3965,9 +3965,9 @@ function populateBotTicketsForRound(forceReseed = false, options = {}) {
         return;
     }
 
-    // Must have at least 6 seconds before lock-in to schedule realistic human bot entry
+    // If forceReseed is true (Admin clicked Live Inject), do not block on timer!
     const remainingSec = Math.max(0, (currentGame.timer || 40) - 4);
-    if (remainingSec < 4) {
+    if (!forceReseed && remainingSec < 4) {
         return;
     }
 
@@ -4003,13 +4003,12 @@ function populateBotTicketsForRound(forceReseed = false, options = {}) {
     ]);
 
     const numBots = plan.length;
-    const windowMs = remainingSec * 1000;
-    // Human-like start delay: first bot enters at ~1.0s-1.5s, subsequent bots spaced out by 3+ seconds
-    const startDelayMs = Math.min(1400, Math.max(800, Math.floor(windowMs * 0.05)));
-    const usableWindowMs = Math.max(3000, windowMs - startDelayMs - 1500);
+    const windowMs = Math.max(3000, remainingSec * 1000);
+    const startDelayMs = 200;
+    const usableWindowMs = Math.max(2000, windowMs - 500);
 
-    // If remaining time is very short (< 14s), do NOT rush all bots in! Cap to at most 1-2 bots for this round
-    const effectiveNumBots = (remainingSec < 14) ? Math.min(2, numBots) : numBots;
+    // Respect full requested bot count with fast human behaviour staggering
+    const effectiveNumBots = numBots;
 
     const actions = [];
     let lastArrivalMs = startDelayMs;
@@ -4018,35 +4017,30 @@ function populateBotTicketsForRound(forceReseed = false, options = {}) {
         const bot = activeBots[i % activeBots.length];
         const cardCount = plan[i];
 
-        // Stagger bot arrivals naturally across the countdown with realistic human pacing (3.0s - 6.5s gaps)
-        const stepGap = Math.max(3000, Math.floor(usableWindowMs / Math.max(1, effectiveNumBots)));
-        const jitter = Math.floor((Math.random() * 1500) - 750);
+        const stepGap = Math.max(150, Math.floor(usableWindowMs / Math.max(1, effectiveNumBots * 0.8)));
+        const jitter = Math.floor((Math.random() * 150) - 75);
         const baseArrivalMs = (i === 0)
-            ? startDelayMs + Math.floor(Math.random() * 500)
-            : Math.max(lastArrivalMs + 2800, lastArrivalMs + stepGap + jitter);
+            ? startDelayMs
+            : Math.max(lastArrivalMs + 100, lastArrivalMs + stepGap + jitter);
 
         lastArrivalMs = baseArrivalMs;
 
         let botCardDelay = baseArrivalMs;
         for (let c = 0; c < cardCount; c++) {
             if (c > 0) {
-                // Human deliberation pause between selecting multiple cards: 2.5s - 4.8s
-                botCardDelay += 2500 + Math.floor(Math.random() * 2300);
+                botCardDelay += 100 + Math.floor(Math.random() * 150);
             }
 
-            // Only schedule if within countdown before the 4-second lock-in window
-            if (botCardDelay < (windowMs - 1000)) {
-                actions.push({
-                    roundId: currentGame.gameId,
-                    phone: bot.phone,
-                    name: bot.name,
-                    botIndex: i,
-                    cardIndexForBot: c,
-                    totalCardsForBot: cardCount,
-                    delayMs: botCardDelay,
-                    done: false
-                });
-            }
+            actions.push({
+                roundId: currentGame.gameId,
+                phone: bot.phone,
+                name: bot.name,
+                botIndex: i,
+                cardIndexForBot: c,
+                totalCardsForBot: cardCount,
+                delayMs: botCardDelay,
+                done: false
+            });
         }
     }
 
