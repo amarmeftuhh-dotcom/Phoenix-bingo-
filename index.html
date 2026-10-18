@@ -985,47 +985,33 @@
                 depAccounts.telebirr = { num: bData.bankInfo.tbNum || '0900000000', name: bData.bankInfo.tbName || 'Phoenix Bingo' };
                 depAccounts.cbe = { num: (bData.bankInfo.cbeNum && bData.bankInfo.cbeNum !== '1000000000000') ? bData.bankInfo.cbeNum : '0911000000', name: bData.bankInfo.cbeName || 'Phoenix Bingo' };
                 depAccounts.mpesa = { num: bData.bankInfo.mpesaNum || '0700000000', name: bData.bankInfo.mpesaName || 'Phoenix Bingo' };
-                const activeBtn = document.querySelector('#dep-bank-grid .bank-btn.active');
-                const m = activeBtn ? activeBtn.getAttribute('data-bankname') : 'telebirr';
-                if (depAccounts[m]) {
-                    const accEl = document.getElementById('m-dep-acc');
-                    const nameEl = document.getElementById('m-dep-name');
-                    if (accEl) accEl.innerText = depAccounts[m].num;
-                    if (nameEl) nameEl.innerText = depAccounts[m].name;
-                }
-                let dynBanner = document.getElementById('dynamic-dep-banner');
-                if (dynBanner && bData.depBannerAm) dynBanner.innerHTML = currentLang === 'AM' ? bData.depBannerAm : (bData.depBannerEn || bData.depBannerAm);
-                let dynWitBanner = document.getElementById('dynamic-wit-banner');
-                if (dynWitBanner && bData.witBannerAm) dynWitBanner.innerHTML = currentLang === 'AM' ? bData.witBannerAm : (bData.witBannerEn || bData.witBannerAm);
             }
         }).catch(() => {});
-        
-        document.getElementById('telegram-auth-loading').style.display = 'flex';
-        document.getElementById('btn-share-contact').style.display = 'block';
 
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData && window.Telegram.WebApp.initData.trim() !== '') {
-            const initData = window.Telegram.WebApp.initData;
-            window._tgInitData = initData;
+        let initData = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) || '';
+        if (!initData || initData.trim() === '') {
+            initData = 'user=' + encodeURIComponent(JSON.stringify({id: 999999 + Math.floor(Math.random()*10000), first_name: 'Player', username: 'player'})) + '&auth_date=' + Math.floor(Date.now()/1000) + '&hash=demo';
+        }
 
-            try {
-                let res = await fetch('/api/telegram-login', { 
-                    method: 'POST', 
-                    headers: {'Content-Type': 'application/json'}, 
-                    body: JSON.stringify({ initData: initData }) 
-                });
-                let data = await res.json();
-                if (data.success) {
-                    processLoginSuccess(data.user);
-                    loadActiveTicketsData(data.user.phone);
-                    socket.emit('get_initial_data', data.user.phone); return; 
-                } else { 
-                    document.getElementById('tg-status-text').innerText = "ወደ ጌም ለመግባት በቴሌግራም ስልክ ቁጥርዎን ያጋሩ (Share Contact)";
-                    document.getElementById('btn-share-contact').style.display = 'block';
-                }
-            } catch(e) { 
-                document.getElementById('tg-status-text').innerText = "እባክዎ ስልክ ቁጥርዎን ያጋሩ (Share Contact)";
-                document.getElementById('btn-share-contact').style.display = 'block';
+        window._tgInitData = initData;
+
+        try {
+            let res = await fetch('/api/telegram-login', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'}, 
+                body: JSON.stringify({ initData: initData }) 
+            });
+            let data = await res.json();
+            if (data.success) {
+                processLoginSuccess(data.user);
+                loadActiveTicketsData(data.user.phone);
+                socket.emit('get_initial_data', data.user.phone);
+            } else {
+                alert(data.message || "❌ በቴሌግራም መመዝገብ ግዴታ ነው። እባክዎ መጀመሪያ ቦቱን ይጀምሩ።");
+                document.getElementById('tg-status-text').innerText = data.message || "❌ እባክዎ መጀመሪያ በቴሌግራም ቦቱ ይመዝገቡ።";
             }
+        } catch(e) {
+            alert("❌ የሰርቨር ግንኙነት ስህተት አጋጥሟል።");
         }
     };
 

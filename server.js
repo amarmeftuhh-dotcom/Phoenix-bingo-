@@ -1597,7 +1597,7 @@ app.post('/api/telegram-login', async (req, res) => {
         if (!user || !user.phone) {
             return res.status(404).json({ 
                 success: false, 
-                message: 'User not registered. Please start the bot in Telegram and share your phone number.' 
+                message: '❌ ተጠቃሚው በዳታቤዝ ውስጥ አልተመዘገበም! እባክዎ መጀመሪያ ቦቱን ጀምረው በቴሌግራም ይመዝገቡ।' 
             });
         }
 
