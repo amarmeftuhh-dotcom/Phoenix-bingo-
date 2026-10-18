@@ -4003,18 +4003,30 @@ function populateBotTicketsForRound(forceReseed = false, options = {}) {
     ]);
 
     const numBots = plan.length;
-    const startDelayMs = 10;
+    const remSec = Math.max(5, (currentGame.timer || 40) - 2);
+    const windowMs = remSec * 1000;
+    const startDelayMs = 500;
+    const usableWindowMs = Math.max(3000, windowMs - startDelayMs - 2500);
+
     const actions = [];
+    let lastArrivalMs = startDelayMs;
 
     for (let i = 0; i < numBots; i++) {
         const bot = activeBots[i % activeBots.length];
         const cardCount = plan[i];
 
-        // Lightning fast entry: 25ms apart per bot
-        let botCardDelay = startDelayMs + (i * 25);
+        const stepGap = Math.max(600, Math.floor(usableWindowMs / Math.max(1, numBots)));
+        const jitter = Math.floor((Math.random() * 400) - 200);
+        const baseArrivalMs = (i === 0)
+            ? startDelayMs + Math.floor(Math.random() * 300)
+            : Math.max(lastArrivalMs + 500, lastArrivalMs + stepGap + jitter);
+
+        lastArrivalMs = baseArrivalMs;
+
+        let botCardDelay = baseArrivalMs;
         for (let c = 0; c < cardCount; c++) {
             if (c > 0) {
-                botCardDelay += 15;
+                botCardDelay += 600 + Math.floor(Math.random() * 1000);
             }
 
             actions.push({
@@ -4024,7 +4036,7 @@ function populateBotTicketsForRound(forceReseed = false, options = {}) {
                 botIndex: i,
                 cardIndexForBot: c,
                 totalCardsForBot: cardCount,
-                delayMs: botCardDelay,
+                delayMs: Math.min(windowMs - 1000, botCardDelay),
                 done: false
             });
         }
