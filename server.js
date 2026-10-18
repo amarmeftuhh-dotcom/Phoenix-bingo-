@@ -4003,11 +4003,11 @@ function populateBotTicketsForRound(forceReseed = false, options = {}) {
     ]);
 
     const numBots = plan.length;
-    const windowMs = Math.max(3000, remainingSec * 1000);
-    const startDelayMs = 200;
-    const usableWindowMs = Math.max(2000, windowMs - 500);
+    const windowMs = Math.max(2000, remainingSec * 1000);
+    const startDelayMs = 50;
+    const usableWindowMs = Math.max(1000, windowMs - 200);
 
-    // Respect full requested bot count with fast human behaviour staggering
+    // Respect full requested bot count with super fast human behaviour staggering
     const effectiveNumBots = numBots;
 
     const actions = [];
@@ -4017,18 +4017,18 @@ function populateBotTicketsForRound(forceReseed = false, options = {}) {
         const bot = activeBots[i % activeBots.length];
         const cardCount = plan[i];
 
-        const stepGap = Math.max(150, Math.floor(usableWindowMs / Math.max(1, effectiveNumBots * 0.8)));
-        const jitter = Math.floor((Math.random() * 150) - 75);
+        const stepGap = Math.max(50, Math.floor(usableWindowMs / Math.max(1, effectiveNumBots * 0.5)));
+        const jitter = Math.floor((Math.random() * 50) - 25);
         const baseArrivalMs = (i === 0)
             ? startDelayMs
-            : Math.max(lastArrivalMs + 100, lastArrivalMs + stepGap + jitter);
+            : Math.max(lastArrivalMs + 40, lastArrivalMs + stepGap + jitter);
 
         lastArrivalMs = baseArrivalMs;
 
         let botCardDelay = baseArrivalMs;
         for (let c = 0; c < cardCount; c++) {
             if (c > 0) {
-                botCardDelay += 100 + Math.floor(Math.random() * 150);
+                botCardDelay += 40 + Math.floor(Math.random() * 60);
             }
 
             actions.push({
