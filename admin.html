@@ -1609,7 +1609,14 @@
                     <h3 style="margin-top:0; color:var(--blue);">✈️ Scheduled Marketing Post</h3>
                     <p style="font-size:11px; color:gray;">Send time is Ethiopian Time (EAT, UTC+3). The worker posts the photo and caption at that exact time. The Automation Master Switch must be on.</p>
                     
-                    <label style="color:var(--text-gray); font-size:12px; font-weight:bold;">EAT date and time</label>
+                    <label style="color:var(--text-gray); font-size:12px; font-weight:bold;">EAT date and time (ቀን እና ሰዓት)</label>
+                    <div style="display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap;">
+                        <button type="button" class="action-btn btn-sm" style="background:rgba(59,130,246,0.2); border:1px solid var(--blue); font-size:11px; padding:4px 8px;" onclick="setBroadcastPresetHours(1)">⏱️ +1 ሰዓት</button>
+                        <button type="button" class="action-btn btn-sm" style="background:rgba(59,130,246,0.2); border:1px solid var(--blue); font-size:11px; padding:4px 8px;" onclick="setBroadcastPresetHours(3)">⏱️ +3 ሰዓት</button>
+                        <button type="button" class="action-btn btn-sm" style="background:rgba(74,222,128,0.2); border:1px solid var(--faded-green); font-size:11px; padding:4px 8px;" onclick="setBroadcastPresetTime('08:00')">🌅 ጠዋት 2:00</button>
+                        <button type="button" class="action-btn btn-sm" style="background:rgba(251,191,36,0.2); border:1px solid var(--gold); font-size:11px; padding:4px 8px;" onclick="setBroadcastPresetTime('14:00')">☀️ ከሰዓት 8:00</button>
+                        <button type="button" class="action-btn btn-sm" style="background:rgba(168,85,247,0.2); border:1px solid var(--purple); font-size:11px; padding:4px 8px;" onclick="setBroadcastPresetTime('18:00')">🌇 ማታ 12:00</button>
+                    </div>
                     <div style="display:flex; gap:10px; margin-bottom: 10px;">
                         <input type="date" id="sch-bc-date" style="flex:1;">
                         <input type="time" id="sch-bc-time" style="flex:1;">
@@ -2234,6 +2241,32 @@
             if (maxEl) maxEl.value = p.max;
         }
         alert("✅ 24/7 Standard Schedule presets filled! Click Save Bot Schedule below.");
+    }
+
+    function setBroadcastPresetHours(hrs) {
+        const target = new Date(Date.now() + (hrs * 3600 * 1000));
+        const yyyy = target.getFullYear();
+        const mm = String(target.getMonth() + 1).padStart(2, '0');
+        const dd = String(target.getDate()).padStart(2, '0');
+        const hh = String(target.getHours()).padStart(2, '0');
+        const min = String(target.getMinutes()).padStart(2, '0');
+
+        const dateEl = document.getElementById('sch-bc-date');
+        const timeEl = document.getElementById('sch-bc-time');
+        if (dateEl) dateEl.value = `${yyyy}-${mm}-${dd}`;
+        if (timeEl) timeEl.value = `${hh}:${min}`;
+    }
+
+    function setBroadcastPresetTime(timeStr) {
+        const target = new Date();
+        const yyyy = target.getFullYear();
+        const mm = String(target.getMonth() + 1).padStart(2, '0');
+        const dd = String(target.getDate()).padStart(2, '0');
+
+        const dateEl = document.getElementById('sch-bc-date');
+        const timeEl = document.getElementById('sch-bc-time');
+        if (dateEl) dateEl.value = `${yyyy}-${mm}-${dd}`;
+        if (timeEl) timeEl.value = timeStr;
     }
 
     function padClock(n) { return String(n).padStart(2, '0'); }

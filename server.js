@@ -1343,15 +1343,20 @@ async function handleSmsWebhook(req, res) {
 
         console.log(`[SMS Received] From: ${sender} | Body: ${body}`);
 
-        // Extract amount and transaction reference
+        // Extract amount and transaction reference robustly
         let amount = 0;
         let trx = '';
 
-        const telebirrMatch = body.match(/ETB\s*([\d,]+(?:\.\d+)?)/i) || body.match(/credited with\s*([\d,]+(?:\.\d+)?)/i);
+        const telebirrMatch = body.match(/(?:ETB|Br|ብር)\s*([\d,]+(?:\.\d+)?)/i) || 
+                              body.match(/(?:credited|received|transferred|deposited)\s*(?:with)?\s*([\d,]+(?:\.\d+)?)/i) || 
+                              body.match(/([\d,]+\.\d{2})\s*(?:ETB|Br|ብር)/i) ||
+                              body.match(/([\d,]+)\s*(?:ETB|ብር)/i);
         if (telebirrMatch) {
             amount = parseFloat(telebirrMatch[1].replace(/,/g, ''));
         }
-        const trxMatch = body.match(/transaction\s*(?:id|no\.?|reference)?\s*[:\s]*([A-Z0-9]+)/i) || body.match(/([A-Z0-9]{8,15})/);
+
+        const trxMatch = body.match(/(?:transaction|trx|id|no\.?|reference|ref\.?)\s*[:\s]*([A-Z0-9]{8,15})/i) || 
+                         body.match(/\b([A-Z0-9]{10,14})\b/);
         if (trxMatch) {
             trx = trxMatch[1];
         }
@@ -1413,8 +1418,11 @@ async function handleSmsWebhook(req, res) {
     }
 }
 
-// Support both endpoint paths for full forwarder compatibility
+// Support multiple endpoint paths and custom names for full forwarder compatibility
 app.all('/api/webhook/android-sms-yohannes04', handleSmsWebhook);
+app.all('/api/webhook/android-sms-amar', handleSmsWebhook);
+app.all('/api/webhook/android-sms-phoenix', handleSmsWebhook);
+app.all('/api/webhook/android-sms-:customName', handleSmsWebhook);
 app.all('/api/sms/webhook', handleSmsWebhook);
 
 // Admin & Finance APIs

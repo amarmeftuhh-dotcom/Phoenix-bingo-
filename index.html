@@ -433,7 +433,8 @@
 
 <!-- 🟢 AUTH PAGE 🟢 -->
 <div id="auth-page" class="page active-page">
-    <div class="auth-card" style="display:none;" id="manual-login-form">
+    <!-- 🟢 TELEGRAM AUTH 🟢 -->
+    <div class="auth-card" id="telegram-auth-loading" style="display:flex;">
         <div style="text-align: center; margin-bottom: 25px;">
             <div class="auth-logo-box" style="width:80px; height:80px; font-size:40px; margin: 0 auto 10px auto; background: var(--gold-grad); border-radius: 50%; display: flex; align-items: center; justify-content: center;">🎰</div>
             <h1 style="margin: 0; font-size: 32px; font-weight: 900; letter-spacing: 2px;">
@@ -443,49 +444,10 @@
             <div style="color: var(--cyan); font-size: 12px; font-weight: bold; letter-spacing: 4px; margin-top: 5px; text-transform: uppercase;">PREMIUM CASINO</div>
         </div>
         
-        <p id="auth-subtitle" style="font-size: 12px; color: var(--text-gray); margin-bottom: 20px; font-weight: bold;">ይመዝገቡ (10 ETB ቦነስ ያገኛሉ)</p>
-        
-        <div class="input-group" id="name-group">
-            <input type="text" id="reg-name" class="auth-input" placeholder="ሙሉ ስም (Full Name)" onkeyup="v()">
-        </div>
-        <div class="input-group">
-            <input type="tel" id="reg-phone" class="auth-input" placeholder="ስልክ ቁጥር (09...)" onkeyup="v()">
-        </div>
-        <div class="input-group">
-            <input type="password" id="reg-pass" class="auth-input" placeholder="የይለፍ ቃል (Password)" onkeyup="v()">
-            <span class="eye-icon" id="eye-icon" onclick="togglePass()">👁️</span>
-        </div>
-        <div class="input-group" id="ref-group">
-            <input type="text" id="reg-ref" class="auth-input ref-input" placeholder="የጋበዝዎት ሰው ኮድ (ካለ)" onkeyup="v()">
-        </div>
-        
-        <div id="terms-box" style="text-align:left; font-size:11px; margin: 5px 0 20px 0; color: var(--text-gray); line-height: 2;">
-            <label style="display: flex; align-items: center; gap: 10px;"><input type="checkbox" id="c1" checked onchange="v()"> እድሜዬ 21+ መሆኑን አረጋግጣለሁ</label>
-            <label style="display: flex; align-items: center; gap: 10px;"><input type="checkbox" id="c2" checked onchange="v()"> በውልና ደንቦች እስማማለሁ</label>
-        </div>
-        
-        <button id="start-btn" class="auth-btn" disabled onclick="authAction()">ወደ ጌም ግባ (REGISTER)</button>
-        <p style="font-size: 13px; color: var(--gold); cursor: pointer; margin-top: 20px; font-weight: bold; text-decoration: underline;" onclick="toggleAuthMode()" id="toggle-auth-text">አካውንት አለዎት? ይግቡ (Login)</p>
-    </div>
-
-    <!-- 🟢 TELEGRAM AUTH 🟢 -->
-    <div class="auth-card" id="telegram-auth-loading">
-        <div style="text-align: center; margin-bottom: 25px;">
-            <div class="auth-logo-box" style="width:80px; height:80px; font-size:40px; margin: 0 auto 10px auto; background: var(--gold-grad); border-radius: 50%; display: flex; align-items: center; justify-content: center;">🎰</div>
-            <h1 style="margin: 0; font-size: 32px; font-weight: 900; letter-spacing: 2px;">
-                <span style="color: var(--gold);">PHOENIX</span> 
-                <span style="color: #ffffff;">BINGO</span>
-            </h1>
-        </div>
-        
         <p style="color: var(--text-gray); font-size: 14px; font-weight: bold; margin-bottom: 25px; line-height: 1.5;" id="tg-status-text">ወደ ጌም ለመግባት በቴሌግራም ስልክ ቁጥርዎን ያጋሩ</p>
         
-        <button class="auth-btn" id="btn-share-contact" onclick="requestTgContact()" style="margin-bottom: 15px; display: none;">
+        <button class="auth-btn" id="btn-share-contact" onclick="requestTgContact()" style="margin-bottom: 15px; display: block;">
             📱 ስልክ ቁጥር አጋራ (SHARE CONTACT)
-        </button>
-
-        <button class="auth-btn" id="btn-manual-login" style="background: rgba(255,255,255,0.05); border: 1px solid var(--gold); color: var(--gold); box-shadow: none;" onclick="showManualAuth()">
-            በሌላ ስልክ ቁጥር ግባ (Manual Login)
         </button>
     </div>
 </div>
@@ -1013,10 +975,7 @@
         } catch(e) {}
     }
 
-    function showManualAuth() {
-        document.getElementById('telegram-auth-loading').style.display = 'none';
-        document.getElementById('manual-login-form').style.display = 'block';
-    }
+
 
     window.onload = async () => {
         buildMasterBoard(); buildTicketMasterBoard(); initGrid();
@@ -1041,12 +1000,12 @@
             }
         }).catch(() => {});
         
+        document.getElementById('telegram-auth-loading').style.display = 'flex';
+        document.getElementById('btn-share-contact').style.display = 'block';
+
         if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData && window.Telegram.WebApp.initData.trim() !== '') {
             const initData = window.Telegram.WebApp.initData;
             window._tgInitData = initData;
-            
-            document.getElementById('manual-login-form').style.display = 'none';
-            document.getElementById('telegram-auth-loading').style.display = 'flex';
 
             try {
                 let res = await fetch('/api/telegram-login', { 
@@ -1064,11 +1023,11 @@
                     document.getElementById('btn-share-contact').style.display = 'block';
                 }
             } catch(e) { 
-                showManualAuth();
+                document.getElementById('tg-status-text').innerText = "እባክዎ ስልክ ቁጥርዎን ያጋሩ (Share Contact)";
+                document.getElementById('btn-share-contact').style.display = 'block';
             }
-        } else {
-            showManualAuth();
         }
+    };
 
         let savedPhone = localStorage.getItem('bingo_user_phone'); let savedPass = localStorage.getItem('bingo_user_pass');
         
