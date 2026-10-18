@@ -229,6 +229,7 @@
         <button class="nav-btn" onclick="switchTab('tab-manipulation', this)" style="color:var(--gold);"><div>💰 Jackpot & Win Timer</div></button>
         <button class="nav-btn" onclick="switchTab('tab-schedule', this)" style="color:var(--faded-green); border-bottom:1px solid var(--border);"><div>📅 Auto Schedule (መቆጣጠሪያ)</div></button>
         <button class="nav-btn" onclick="switchTab('tab-settings', this)"><div>⚙️ Settings & Control</div></button>
+        <a href="/download-zip" download="phoenix-bingo-github-ready.zip" class="nav-btn" style="color:var(--gold); border-top:1px solid var(--border); text-decoration:none; display:flex; align-items:center;"><div>📦 Download ZIP (ኮድ አውርድ)</div></a>
     </div>
     
     <div class="main-content">
@@ -247,9 +248,11 @@
                         <span style="font-size:10px; color:var(--text-gray); display:block; text-transform:uppercase;">Live Jackpot</span>
                         <b id="header-jackpot" style="color:var(--gold); font-size:14px; letter-spacing:1px;">0.00 ETB</b>
                     </div>
-                </div>
             </div>
-            <button class="action-btn btn-blue btn-sm" onclick="fullRefresh()" style="padding: 8px 12px;">🔄 Refresh Data</button>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button onclick="openCodeDownloadModal()" class="action-btn btn-sm" style="background:var(--gold-grad); color:black; font-weight:900; display:inline-flex; align-items:center; gap:6px; padding: 8px 14px; border-radius:8px; border:none; cursor:pointer;">📦 አዲሱን ኮድ አውርድ (Download ZIP)</button>
+                <button class="action-btn btn-blue btn-sm" onclick="fullRefresh()" style="padding: 8px 12px;">🔄 Refresh Data</button>
+            </div>
         </div>
         <!-- LIVE TAB -->
         <div id="tab-live" class="tab-content active">
@@ -1340,6 +1343,37 @@
     </div>
 </div>
 
+<div class="modal" id="code-download-modal">
+    <div class="modal-content" style="max-width: 550px; background: #0f172a; border: 1px solid #38bdf8;">
+        <h3 style="color: var(--gold); margin-top:0; display:flex; align-items:center; gap:8px;">📦 Phoenix Bingo Code & ZIP Export</h3>
+        <p style="color: #cbd5e1; font-size: 12px; margin-top:0;">የተስተካከለውን ሙሉ ፕሮጀክት በ ZIP ማውረድ ወይም ነጠላ ፋይሎችን በቀጥታ ኮፒ ማድረግ ይችላሉ።</p>
+
+        <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--gold); border-radius: 10px; padding: 14px; margin-bottom: 15px;">
+            <div style="font-weight: bold; color: var(--gold); margin-bottom: 8px;">1. ሙሉውን የፕሮጀክት ZIP ፋይል አውርድ:</div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <a href="/download-zip" download="phoenix-bingo-github-ready.zip" class="action-btn" style="flex:1; text-align:center; text-decoration:none; background:var(--gold-grad); color:black; font-weight:900; padding:10px; border-radius:8px;">📥 ቀጥታ አውርድ (Direct ZIP)</a>
+                <button onclick="adminTriggerBlobDownload()" class="action-btn" style="flex:1; background:var(--faded-green); color:black; font-weight:bold; padding:10px; border-radius:8px; border:none; cursor:pointer;">💾 በብሮውዘር በኩል (Blob Download)</button>
+            </div>
+        </div>
+
+        <div style="background: rgba(30, 41, 59, 0.8); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 15px;">
+            <div style="font-weight: bold; color: var(--cyan); margin-bottom: 8px;">2. ፋይሎችን በቀጥታ ኮፒ ለማድረግ (Copy File Code):</div>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                <button class="action-btn btn-sm btn-blue" onclick="adminCopyFileCode('server.js')">📋 Copy server.js</button>
+                <button class="action-btn btn-sm btn-purple" onclick="adminCopyFileCode('index.html')">📋 Copy index.html</button>
+                <button class="action-btn btn-sm" style="background:#0ea5e9; color:black; font-weight:bold;" onclick="adminCopyFileCode('admin.html')">📋 Copy admin.html</button>
+                <button class="action-btn btn-sm" style="background:#a3e635; color:black; font-weight:bold;" onclick="adminCopyFileCode('bot.routes.js')">📋 Copy bot.routes.js</button>
+            </div>
+            <textarea id="admin-code-viewer" style="width:100%; height:150px; background:#020617; color:#38bdf8; font-family:monospace; font-size:11px; margin-top:10px; border-radius:6px; border:1px solid #334155; display:none; padding:8px; box-sizing:border-box;" readonly></textarea>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <a href="/download" target="_blank" style="color:var(--cyan); font-size:12px; text-decoration:underline;">🔗 የተሟላ የማውረጃ ገጽ (Open Download Page)</a>
+            <button class="action-btn btn-red" onclick="closeCodeDownloadModal()">✖ ዝጋ (Close)</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal" id="promoter-profile-modal">
     <div class="modal-content" style="max-width: 600px; padding:0;">
         <div class="promoter-header">
@@ -2013,6 +2047,49 @@ async function submitManualDeposit() {
                 alert("❌ " + data.message);
             }
         } catch(e) { alert("Error saving bot."); }
+    }
+
+    function openCodeDownloadModal() {
+        document.getElementById('code-download-modal').style.display = 'flex';
+    }
+    function closeCodeDownloadModal() {
+        document.getElementById('code-download-modal').style.display = 'none';
+    }
+    async function adminCopyFileCode(fileName) {
+        try {
+            const res = await fetch('/raw/' + fileName);
+            const text = await res.text();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text);
+                alert('✅ ' + fileName + ' ሙሉ ኮዱ ኮፒ ተደርጓል (Copied)!');
+            } else {
+                const ta = document.getElementById('admin-code-viewer');
+                ta.value = text;
+                ta.style.display = 'block';
+                ta.select();
+                document.execCommand('copy');
+                alert('✅ ' + fileName + ' ሙሉ ኮዱ ኮፒ ተደርጓል (Copied)!');
+            }
+        } catch (e) {
+            window.open('/raw/' + fileName, '_blank');
+        }
+    }
+    async function adminTriggerBlobDownload() {
+        try {
+            const res = await fetch('/download-zip');
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'phoenix-bingo-github-ready.zip';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+            alert('✅ ዚፕ ፋይሉ ማውረድ ጀምሯል (Download Started)!');
+        } catch(e) {
+            window.location.href = '/download-zip';
+        }
     }
 
     async function addCustomBots() {
@@ -2823,7 +2900,7 @@ async function submitManualDeposit() {
                     let methodStr = (t.method || "").toUpperCase(); 
                     let methodBadge = ""; 
                     if (methodStr.includes("CBE")) { 
-                        methodBadge = `<span style="background: #a855f7; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 900; font-size: 14px;">🏦 CBE</span>`; 
+                        methodBadge = `<span style="background: #a855f7; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 900; font-size: 14px;">🏦 CBE BIRR</span>`; 
                     } else if (methodStr.includes("TELEBIRR")) { 
                         methodBadge = `<span style="background: #3b82f6; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 900; font-size: 14px;">📱 TELEBIRR</span>`; 
                     } else if (methodStr.includes("MPESA")) { 
@@ -2891,7 +2968,7 @@ async function submitManualDeposit() {
                 
                 let methodStr = (t.method || "").toUpperCase(); 
                 let methodBadge = ""; 
-                if (methodStr.includes("CBE")) { methodBadge = `<span style="background: #a855f7; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 900; font-size: 13px; border: 1px solid #d8b4fe;">🏦 CBE</span>`; } 
+                if (methodStr.includes("CBE")) { methodBadge = `<span style="background: #a855f7; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 900; font-size: 13px; border: 1px solid #d8b4fe;">🏦 CBE BIRR</span>`; } 
                 else if (methodStr.includes("TELEBIRR")) { methodBadge = `<span style="background: #3b82f6; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 900; font-size: 13px; border: 1px solid #93c5fd;">📱 TELEBIRR</span>`; } 
                 else if (methodStr.includes("MPESA")) { methodBadge = `<span style="background: #22c55e; color: black; padding: 4px 10px; border-radius: 6px; font-weight: 900; font-size: 13px; border: 1px solid #4ade80;">🟢 M-PESA</span>`; }
                 else { methodBadge = `<span style="background: #475569; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px; text-transform: uppercase;">${t.method}</span>`; }
@@ -2904,7 +2981,7 @@ async function submitManualDeposit() {
             
             let witsHtml = wits.map(t => { 
                 let methodStr = (t.method || "").toUpperCase(); let methodBadge = ""; 
-                if (methodStr.includes("CBE")) { methodBadge = `<span style="background: #a855f7; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 900; font-size: 13px; border: 1px solid #d8b4fe;">🏦 CBE</span>`; } 
+                if (methodStr.includes("CBE")) { methodBadge = `<span style="background: #a855f7; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 900; font-size: 13px; border: 1px solid #d8b4fe;">🏦 CBE BIRR</span>`; } 
                 else if (methodStr.includes("TELEBIRR")) { methodBadge = `<span style="background: #3b82f6; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 900; font-size: 13px; border: 1px solid #93c5fd;">📱 TELEBIRR</span>`; } 
                 else if (methodStr.includes("MPESA")) { methodBadge = `<span style="background: #22c55e; color: black; padding: 4px 10px; border-radius: 6px; font-weight: 900; font-size: 13px; border: 1px solid #4ade80;">🟢 M-PESA</span>`; }
                 else { methodBadge = `<span style="background: #475569; color: white; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px; text-transform: uppercase;">${t.method}</span>`; }

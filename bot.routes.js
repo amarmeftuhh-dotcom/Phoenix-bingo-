@@ -268,5 +268,6 @@ module.exports = function(SystemSettings, loadSettings, auth, context = {}) {
     router.getBotsFromStore = getBotsFromStore;
     router.getSettingsFromStore = getSettingsFromStore;
     router.inMemoryBotSettings = inMemoryBotSettings;
+    router.inMemoryBots = inMemoryBots;
     return router;
 };

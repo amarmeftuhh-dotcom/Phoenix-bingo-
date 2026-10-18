@@ -55,14 +55,14 @@ function isIsolatedTestEnvironment() {
 }
 
 function checkDatabaseAvailability() {
-    if (!isDatabaseOperational() && !isIsolatedTestEnvironment()) {
-        return {
-            ok: false,
-            code: 'DATABASE_UNAVAILABLE',
-            message: 'የዳታቤዝ ግንኙነት ተቋርጧል! የሂሳብ እንቅስቃሴዎች ለደህንነት ሲባል ለጊዜው ቆመዋል (Database unavailable. Financial operations paused).'
-        };
+    if (isDatabaseOperational() || isIsolatedTestEnvironment()) {
+        return null;
     }
-    return null;
+    return {
+        ok: false,
+        code: 'DATABASE_UNAVAILABLE',
+        error: 'Service temporarily undergoing database maintenance. Financial updates safely blocked to protect your funds.'
+    };
 }
 
 /**

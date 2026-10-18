@@ -192,6 +192,8 @@ async function runTests() {
     global.__inMemorySettings.botDist4 = 0;
     resetGame();
     startCountdown();
+    assert.strictEqual(currentGame.botEntryQueue.length, 4, 'Must schedule 4 human-like bot picks in countdown queue');
+    require('../server.js').flushPendingBotSchedule();
     const statusWhenConfigured = getGameStatusPayload();
     assert.strictEqual(Object.keys(statusWhenConfigured.selectedCards).length, 4, 'Must have exactly 4 cards from Admin-configured bots (2x1 + 1x2)');
     assert.strictEqual(statusWhenConfigured.totalPrizePool, 32, 'Jackpot must equal exact Admin bot cards * 8 ETB = 32 ETB');

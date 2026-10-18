@@ -341,14 +341,14 @@
             <div class="trx-group-label" id="lbl-dep-bank">1. ባንክ ይምረጡ</div>
             <div class="bank-grid" id="dep-bank-grid">
                 <div class="bank-btn active" data-bankname="telebirr" onclick="selectBank('telebirr', this, 'dep')"><div class="bank-logo logo-tb">t</div> TeleBirr</div>
-                <div class="bank-btn" data-bankname="cbe" onclick="selectBank('cbe', this, 'dep')"><div class="bank-logo logo-cbe">CBE</div> CBE</div>
+                <div class="bank-btn" data-bankname="cbe" onclick="selectBank('cbe', this, 'dep')"><div class="bank-logo logo-cbe">CBE</div> CBE Birr (ሲቢኢ ብር)</div>
                 <div class="bank-btn" data-bankname="mpesa" onclick="selectBank('mpesa', this, 'dep')"><div class="bank-logo logo-mp">M</div> M-Pesa</div>
             </div>
             
             <div id="dep-copy-box" class="trx-copy-box show">
                 <div>
                     <small style="color:#94a3b8; font-size:10px; font-weight:bold;" id="lbl-bank-acc">የባንክ አካውንት:</small><br>
-                    <b id="m-dep-name" style="font-size:12px; color:white;">እዚህ ጋር ስምህን ፃፍ</b><br>
+                    <b id="m-dep-name" style="font-size:12px; color:white;">Phoenix Bingo</b><br>
                     <b id="m-dep-acc" style="font-size:16px; color:var(--gold); font-family:monospace; margin-top:2px; display:block;">0900000000</b>
                 </div>
                 <button style="background: var(--gold-grad); border: none; color: black; padding: 8px 12px; border-radius: 8px; font-weight: 900; cursor: pointer; font-size: 11px;" onclick="copyModalNumber('m-dep-acc')">Copy</button>
@@ -375,21 +375,24 @@
         <div class="trx-header"><h3 class="trx-title" id="wit-title">Withdraw</h3><button class="trx-close" onclick="closeWithdrawModal()">✖</button></div>
         
         <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 12px; padding: 12px; margin-bottom: 20px; font-size: 11px; color: #fca5a5; text-align: center; line-height:1.5;" id="dynamic-wit-banner">
-            ⚠️ <b>ማሳሰቢያ:</b> ለደህንነት ሲባል ገንዘብ ወጪ ማድረግ የሚቻለው <b>ሲመዘገቡ በተጠቀሙበት ስልክ ቁጥር</b> ብቻ ነው።
+            ⚠️ <b>ማሳሰቢያ:</b> ለደህንነት ሲባል ገንዘብ ወጪ ማድረግ የሚቻለው <b>ሲመዘገቡ በተጠቀሙበት ስልክ ቁጥር ወይም በራስዎ የባንክ አካውንት</b> ብቻ ነው።
         </div>
 
         <div class="trx-group">
             <div class="trx-group-label" id="lbl-wit-bank">1. ወጪ ማድረጊያ ባንክ</div>
             <div class="bank-grid" id="wit-bank-grid">
                 <div class="bank-btn active" data-bankname="telebirr" onclick="selectBank('telebirr', this, 'wit')"><div class="bank-logo logo-tb">t</div> TeleBirr</div>
-                <div class="bank-btn" data-bankname="cbe" onclick="selectBank('cbe', this, 'wit')"><div class="bank-logo logo-cbe">CBE</div> CBE</div>
+                <div class="bank-btn" data-bankname="cbe" onclick="selectBank('cbe', this, 'wit')"><div class="bank-logo logo-cbe">CBE</div> CBE Birr (ሲቢኢ ብር)</div>
                 <div class="bank-btn" data-bankname="mpesa" onclick="selectBank('mpesa', this, 'wit')"><div class="bank-logo logo-mp">M</div> M-Pesa</div>
             </div>
         </div>
         
         <div class="trx-group">
             <div class="trx-group-label" id="lbl-wit-info">2. መረጃ ያስገቡ</div>
-            <input type="tel" id="m-wit-phone" class="trx-input disabled-input" readonly style="opacity:0.6; pointer-events:none; margin-bottom: 12px; background: rgba(0,0,0,0.8); color: #cbd5e1;">
+            <label style="font-size:10px; color:#94a3b8; font-weight:bold; margin-bottom:4px; display:block;" id="lbl-wit-phone-field">የመቀበያ ስልክ ቁጥር (Recipient Phone):</label>
+            <input type="text" id="m-wit-phone" class="trx-input" placeholder="09... / 07... (ስልክ ቁጥር)" style="margin-bottom: 10px;">
+            <input type="text" id="m-wit-acc-name" class="trx-input" placeholder="የአካውንት ባለቤት ስም (Account Holder Name)" style="display:none; margin-bottom: 10px;">
+            <label style="font-size:10px; color:#94a3b8; font-weight:bold; margin-bottom:4px; display:block;">የሚወጣው የብር መጠን (Amount):</label>
             <input type="number" id="m-wit-amt" class="trx-input" placeholder="መጠን (Amount) - Min 50 ETB">
         </div>
         
@@ -1017,6 +1020,26 @@
 
     window.onload = async () => {
         buildMasterBoard(); buildTicketMasterBoard(); initGrid();
+
+        fetch('/api/bank-settings').then(r => r.json()).then(bData => {
+            if (bData && bData.success && bData.bankInfo) {
+                depAccounts.telebirr = { num: bData.bankInfo.tbNum || '0900000000', name: bData.bankInfo.tbName || 'Phoenix Bingo' };
+                depAccounts.cbe = { num: (bData.bankInfo.cbeNum && bData.bankInfo.cbeNum !== '1000000000000') ? bData.bankInfo.cbeNum : '0911000000', name: bData.bankInfo.cbeName || 'Phoenix Bingo' };
+                depAccounts.mpesa = { num: bData.bankInfo.mpesaNum || '0700000000', name: bData.bankInfo.mpesaName || 'Phoenix Bingo' };
+                const activeBtn = document.querySelector('#dep-bank-grid .bank-btn.active');
+                const m = activeBtn ? activeBtn.getAttribute('data-bankname') : 'telebirr';
+                if (depAccounts[m]) {
+                    const accEl = document.getElementById('m-dep-acc');
+                    const nameEl = document.getElementById('m-dep-name');
+                    if (accEl) accEl.innerText = depAccounts[m].num;
+                    if (nameEl) nameEl.innerText = depAccounts[m].name;
+                }
+                let dynBanner = document.getElementById('dynamic-dep-banner');
+                if (dynBanner && bData.depBannerAm) dynBanner.innerHTML = currentLang === 'AM' ? bData.depBannerAm : (bData.depBannerEn || bData.depBannerAm);
+                let dynWitBanner = document.getElementById('dynamic-wit-banner');
+                if (dynWitBanner && bData.witBannerAm) dynWitBanner.innerHTML = currentLang === 'AM' ? bData.witBannerAm : (bData.witBannerEn || bData.witBannerAm);
+            }
+        }).catch(() => {});
         
         if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData && window.Telegram.WebApp.initData.trim() !== '') {
             const initData = window.Telegram.WebApp.initData;
@@ -1064,43 +1087,62 @@
 
     async function loadActiveTicketsData(phone) {
         try {
+            const targetPhone = phone || (currentUser && currentUser.phone) || localStorage.getItem('bingo_user_phone') || '';
+            if (!targetPhone) return;
             const initData = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) || window._tgInitData || '';
+            const savedPass = localStorage.getItem('bingo_user_pass') || '';
             const headers = {};
             if (initData) {
                 headers['X-Telegram-Init-Data'] = initData;
             }
-            let tRes = await fetch('/api/user/my-active-tickets', { headers });
+            if (savedPass) {
+                headers['X-User-Password'] = savedPass;
+            }
+            let tRes = await fetch('/api/user/my-active-tickets/' + encodeURIComponent(targetPhone) + '?t=' + Date.now(), { headers });
             if (!tRes.ok) return;
             let tData = await tRes.json();
-            if(tData && tData.success && Array.isArray(tData.ticketsData)) {
-                userTicketsData = tData.ticketsData; 
-                renderConfirmedTickets(); 
-                updateBetPreview(); 
-                renderGridTakenStates(); 
-                let navTicket = document.getElementById('nav-item-ticket');
-                if (navTicket) {
-                    if (userTicketsData.length > 0 || isGameRunningLocally || currentGameState === 'PLAYING') {
-                        navTicket.style.display = 'flex';
-                    }
+            if (tData && tData.success) {
+                if (tData.gameId) {
+                    currentServerGameId = tData.gameId;
+                    let trEl = document.getElementById('top-round-id'); if (trEl) trEl.innerText = '#' + tData.gameId;
+                    let gid = document.getElementById('g-id'); if (gid) gid.innerText = '#' + tData.gameId;
                 }
-                if(Array.isArray(tData.calledNumbers) && tData.calledNumbers.length > 0) {
+                if (tData.state === 'PLAYING' || tData.state === 'RESOLVING_WINNERS') {
+                    isGameRunningLocally = true;
+                    currentGameState = 'PLAYING';
+                }
+                if (Array.isArray(tData.calledNumbers)) {
                     called = tData.calledNumbers;
-                    called.forEach(num => {
-                        let colIdx = num <= 15 ? 0 : num <= 30 ? 1 : num <= 45 ? 2 : num <= 60 ? 3 : 4; 
-                        let ballText = bHeads[colIdx] + "-" + num; 
-                        let topH = document.getElementById('history-scroll-top'); 
-                        let tickH = document.getElementById('ticket-history-bar');
-                        if (topH && topH.innerHTML === '' || tickH && tickH.innerText.includes("ገና") || tickH && tickH.innerText.includes("Wait")) { if(tickH) tickH.innerHTML = ''; }
-                        let topDiv = document.createElement('div'); topDiv.className = 'hist-top-ball'; topDiv.innerText = ballText; 
-                        let tickDiv = document.createElement('div'); tickDiv.className = 'hist-top-ball'; tickDiv.innerText = ballText;
-                        if(topH) topH.insertBefore(topDiv, topH.firstChild); 
-                        if(tickH) tickH.insertBefore(tickDiv, tickH.firstChild); 
-                    });
-                    called.forEach(num => {
-                        document.querySelectorAll('.t-v-' + num).forEach(c => c.classList.add('marked'));
-                        let mbCell = document.getElementById('mb-' + num); if(mbCell) mbCell.classList.add('called'); 
-                        let tmbCell = document.getElementById('tmb-' + num); if(tmbCell) tmbCell.classList.add('called');
-                    });
+                    let gballs = document.getElementById('g-balls'); if (gballs) gballs.innerText = called.length + "/75";
+                    let tballs = document.getElementById('t-page-balls'); if (tballs) tballs.innerText = called.length + "/75";
+                    document.querySelectorAll('.mb-cell').forEach(c => c.classList.remove('called', 'current'));
+                    let hst = document.getElementById('history-scroll-top'); if (hst) hst.innerHTML = '';
+                    let thb = document.getElementById('ticket-history-bar');
+                    if (thb) {
+                        thb.innerHTML = called.length === 0
+                            ? `<span style="color:var(--text-gray); font-size:11px;" id="lbl-hist-wait">${currentLang === 'AM' ? 'ገና አልጀመረም...' : 'Waiting to start...'}</span>`
+                            : '';
+                    }
+                    called.forEach((num, idx) => { updateLiveUI(num, idx === called.length - 1); });
+                }
+                if (Array.isArray(tData.ticketsData)) {
+                    userTicketsData = tData.ticketsData.filter(t => t && (t.gameId === undefined || Number(t.gameId) === Number(currentServerGameId)));
+                    renderConfirmedTickets();
+                    updateBetPreview();
+                    renderGridTakenStates();
+                    let navTicket = document.getElementById('nav-item-ticket');
+                    if (navTicket) {
+                        if (userTicketsData.length > 0 || isGameRunningLocally || currentGameState === 'PLAYING') {
+                            navTicket.style.display = 'flex';
+                        } else {
+                            navTicket.style.display = 'none';
+                        }
+                    }
+                    if ((isGameRunningLocally || currentGameState === 'PLAYING') && userTicketsData.length > 0) {
+                        if (!document.getElementById('ticket-page').classList.contains('active-page')) {
+                            showPage('ticket', document.getElementById('nav-item-ticket'));
+                        }
+                    }
                 }
             }
         } catch(e) {}
@@ -1197,85 +1239,194 @@
     function openDepositModal() { document.getElementById('dep-modal-overlay').style.display = 'flex'; setTimeout(() => { document.getElementById('dep-modal').classList.add('show'); }, 10); }
     function closeDepositModal(e) { if(e && e.target.id !== 'dep-modal-overlay') return; document.getElementById('dep-modal').classList.remove('show'); setTimeout(() => { document.getElementById('dep-modal-overlay').style.display = 'none'; }, 300); }
     
-    function openWithdrawModal() { if(currentUser && currentUser.phone) { document.getElementById('m-wit-phone').value = currentUser.phone; } document.getElementById('wit-modal-overlay').style.display = 'flex'; setTimeout(() => { document.getElementById('wit-modal').classList.add('show'); }, 10); }
-    function closeWithdrawModal(e) { if(e && e.target.id !== 'wit-modal-overlay') return; document.getElementById('wit-modal').classList.remove('show'); setTimeout(() => { document.getElementById('wit-modal-overlay').style.display = 'none'; }, 300); }
-    
-    const depAccounts = { 'telebirr': {num: '0900000000', name: 'እዚህ ጋር ስምህን ፃፍ'}, 'cbe': {num: '1000000000000', name: 'እዚህ ጋር ስምህን ፃፍ'}, 'mpesa': {num: '0700000000', name: 'እዚህ ጋር ስምህን ፃፍ'} };
+    const depAccounts = {
+        'telebirr': { num: '0900000000', name: 'Phoenix Bingo' },
+        'cbe': { num: '1000000000000', name: 'Phoenix Bingo' },
+        'mpesa': { num: '0700000000', name: 'Phoenix Bingo' }
+    };
+
+    function openWithdrawModal() {
+        if (!currentUser || !currentUser.phone) {
+            return alert(currentLang === 'AM' ? "እባክዎ መጀመሪያ ይግቡ (Login)" : "Please login first!");
+        }
+        let phoneInput = document.getElementById('m-wit-phone');
+        if (phoneInput && (!phoneInput.value || phoneInput.value.trim() === '')) {
+            phoneInput.value = currentUser.phone;
+        }
+        document.getElementById('wit-modal-overlay').style.display = 'flex';
+        setTimeout(() => { document.getElementById('wit-modal').classList.add('show'); }, 10);
+    }
 
     function selectBank(method, element, type) {
-        let gridId = type === 'dep' ? 'dep-bank-grid' : 'wit-bank-grid'; let buttons = document.querySelectorAll(`#${gridId} .bank-btn`); buttons.forEach(btn => btn.classList.remove('active')); element.classList.add('active');
-        if(type === 'dep') { let copyBox = document.getElementById('dep-copy-box'); copyBox.classList.remove('pop-anim'); void copyBox.offsetWidth; copyBox.classList.add('show', 'pop-anim'); document.getElementById('m-dep-acc').innerText = depAccounts[method].num; document.getElementById('m-dep-name').innerText = depAccounts[method].name; }
+        let gridId = type === 'dep' ? 'dep-bank-grid' : 'wit-bank-grid';
+        let buttons = document.querySelectorAll(`#${gridId} .bank-btn`);
+        buttons.forEach(btn => btn.classList.remove('active'));
+        element.classList.add('active');
+
+        if (type === 'dep') {
+            let copyBox = document.getElementById('dep-copy-box');
+            copyBox.classList.remove('pop-anim');
+            void copyBox.offsetWidth;
+            copyBox.classList.add('show', 'pop-anim');
+            const accObj = depAccounts[method] || { num: '0900000000', name: 'Phoenix Bingo' };
+            document.getElementById('m-dep-acc').innerText = accObj.num;
+            document.getElementById('m-dep-name').innerText = accObj.name;
+        } else if (type === 'wit') {
+            const phoneInput = document.getElementById('m-wit-phone');
+            const nameInput = document.getElementById('m-wit-acc-name');
+            const phoneLabel = document.getElementById('lbl-wit-phone-field');
+            if (method === 'cbe') {
+                if (phoneLabel) phoneLabel.innerText = currentLang === 'AM' ? 'የሲቢኢ ብር ስልክ ቁጥር (CBE Birr Phone):' : 'CBE Birr Phone Number:';
+                if (phoneInput) {
+                    phoneInput.placeholder = '09... / 07... (CBE Birr)';
+                    phoneInput.value = (currentUser && currentUser.phone) ? currentUser.phone : '';
+                }
+                if (nameInput) nameInput.style.display = 'none';
+            } else {
+                if (phoneLabel) phoneLabel.innerText = currentLang === 'AM' ? 'የመቀበያ ስልክ ቁጥር (Recipient Phone):' : 'Recipient Phone Number:';
+                if (phoneInput) {
+                    phoneInput.placeholder = '09... / 07...';
+                    phoneInput.value = (currentUser && currentUser.phone) ? currentUser.phone : '';
+                }
+                if (nameInput) nameInput.style.display = 'none';
+            }
+        }
     }
-    function copyModalNumber(id) { navigator.clipboard.writeText(document.getElementById(id).innerText); alert(currentLang === 'AM' ? "ቁጥሩ ኮፒ ተደርጓል!" : "Number Copied!"); }
+
+    function copyModalNumber(id) {
+        const val = document.getElementById(id).innerText;
+        navigator.clipboard.writeText(val);
+        alert(currentLang === 'AM' ? `የባንክ ቁጥር ኮፒ ተደርጓል: ${val}` : `Account number copied: ${val}`);
+    }
 
     async function processNewDeposit() {
-        let amt = parseFloat(document.getElementById('m-dep-amt').value); let activeBtn = document.querySelector('#dep-bank-grid .bank-btn.active'); let method = activeBtn ? activeBtn.getAttribute('data-bankname') : ''; let smsText = document.getElementById('m-dep-sms').value.trim();
-        if(!method) return alert(currentLang === 'AM' ? "እባክዎ ባንክ ይምረጡ!" : "Please select a bank!"); if(!amt || amt < 50) return alert(currentLang === 'AM' ? "ዝቅተኛው መጠን 50 ብር ነው!" : "Minimum is 50 ETB!"); if(!smsText) return alert(currentLang === 'AM' ? "እባክዎ የSMS ማረጋገጫ ያስገቡ!" : "Please paste the SMS!");
-        let btn = document.getElementById('m-dep-btn'); btn.innerText = currentLang === 'AM' ? "እየላከ ነው..." : "Submitting...";
-        
-        try { 
-            let res = await fetch('/api/request-tx', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: currentUser.phone, type: 'deposit', amount: amt, method: method, sms: smsText }) }); 
-            let data = await res.json(); 
-            
-            if(data.success) { 
-                alert(data.message); 
-                document.getElementById('m-dep-amt').value = ''; document.getElementById('m-dep-sms').value = ''; closeDepositModal(); 
-                
+        if (!currentUser || !currentUser.phone) {
+            return alert(currentLang === 'AM' ? "እባክዎ መጀመሪያ ይግቡ (Login)!" : "Please login first!");
+        }
+        let amt = parseFloat(document.getElementById('m-dep-amt').value);
+        let activeBtn = document.querySelector('#dep-bank-grid .bank-btn.active');
+        let method = activeBtn ? activeBtn.getAttribute('data-bankname') : 'telebirr';
+        let smsText = document.getElementById('m-dep-sms').value.trim();
+
+        if (!method) return alert(currentLang === 'AM' ? "እባክዎ ባንክ ይምረጡ!" : "Please select a bank!");
+        if (!amt || amt < 50) return alert(currentLang === 'AM' ? "ዝቅተኛው መጠን 50 ብር ነው!" : "Minimum is 50 ETB!");
+        if (!smsText) return alert(currentLang === 'AM' ? "እባክዎ ከባንክ የተላከውን የSMS ማረጋገጫ ሙሉውን እዚህ ያስገቡ!" : "Please paste the full confirmation SMS!");
+
+        let btn = document.getElementById('m-dep-btn');
+        btn.innerText = currentLang === 'AM' ? "እየላከ ነው..." : "Submitting...";
+
+        try {
+            let res = await fetch('/api/request-tx', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phone: currentUser.phone,
+                    type: 'deposit',
+                    amount: amt,
+                    method: method,
+                    sms: smsText
+                })
+            });
+            let data = await res.json();
+
+            if (data.success) {
+                alert(data.message || (currentLang === 'AM' ? "✅ የዲፖዚት ጥያቄዎ ተልኳል! አድሚን ሲያረጋግጥ ወደ ሂሳብዎ ይገባል።" : "✅ Deposit request submitted successfully!"));
+                document.getElementById('m-dep-amt').value = '';
+                document.getElementById('m-dep-sms').value = '';
+                closeDepositModal();
+
                 let hc = document.getElementById('wallet-history-list');
                 let noHist = document.getElementById('lbl-no-hist');
                 if (noHist) noHist.remove();
-                
+
                 let timeStr = new Date().toLocaleString();
                 let statText = data.status === 'Approved' ? '✅ APPROVED' : '⏳ PENDING';
                 let statClass = data.status === 'Approved' ? 'stat-approved' : 'stat-pending';
-                
+
                 let newTx = `<div class="tx-card" style="border-left: 4px solid #2dd4bf;"><div class="tx-left"><span class="tx-type" style="color:#2dd4bf;">DEPOSIT (ገቢ) (${method})</span><span class="tx-status ${statClass}">${statText}</span><span class="tx-date">${timeStr}</span></div><div class="tx-right"><span class="tx-amt" style="color: #2dd4bf;">+${Number(amt).toLocaleString('en-US', {minimumFractionDigits: 2})} ETB</span></div></div>`;
-                
-                hc.insertAdjacentHTML('afterbegin', newTx);
-                while(hc.children.length > 100) hc.removeChild(hc.lastChild);
-                
-                setTimeout(() => { fetchUpdatedBalance(); loadTransactionHistory(); }, 1500); 
+
+                if (hc) {
+                    hc.insertAdjacentHTML('afterbegin', newTx);
+                    while (hc.children.length > 100) hc.removeChild(hc.lastChild);
+                }
+
+                setTimeout(() => { fetchUpdatedBalance(); loadTransactionHistory(); }, 1200);
             } else {
-                alert(data.message);
+                alert(data.message || "Error submitting deposit");
             }
-        } catch(e) {}
+        } catch (e) {
+            alert(currentLang === 'AM' ? "የኔትወርክ ስህተት አጋጥሟል!" : "Network error!");
+        }
         btn.innerText = currentLang === 'AM' ? "ገቢ አድርግ (SUBMIT)" : "SUBMIT DEPOSIT";
     }
 
     async function processNewWithdraw() {
-        let amt = parseFloat(document.getElementById('m-wit-amt').value); let activeBtn = document.querySelector('#wit-bank-grid .bank-btn.active'); let method = activeBtn ? activeBtn.getAttribute('data-bankname') : ''; let phone = document.getElementById('m-wit-phone').value.trim();
-        if(!method) return alert(currentLang === 'AM' ? "እባክዎ ባንክ ይምረጡ!" : "Please select a bank!"); if(!phone) return alert(currentLang === 'AM' ? "እባክዎ ስልክ ቁጥር ያስገቡ!" : "Please enter a phone number!"); if(!amt || amt < 50 || amt > 300000) return alert(currentLang === 'AM' ? "መጠን በ 50 እና 300,000 መሃል መሆን አለበት!" : "Amount must be between 50 and 300,000!");
-        let currentMainBal = parseFloat(currentUser.mainBalance) || 0; if(amt > currentMainBal) return alert(currentLang === 'AM' ? "በዋና (ያሸነፉት) ሂሳብዎ ላይ በቂ ገንዘብ የሎትም!" : "Insufficient main balance!"); 
-        let btn = document.getElementById('m-wit-btn'); btn.innerText = currentLang === 'AM' ? "እየላከ ነው..." : "Submitting...";
-        
-        try { 
-            let res = await fetch('/api/request-tx', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: currentUser.phone, type: 'withdraw', amount: amt, method: method, destinationPhone: phone }) }); 
-            let data = await res.json(); 
-            if(data.success) { 
-                alert(data.message); 
-                document.getElementById('m-wit-amt').value = ''; document.getElementById('m-wit-phone').value = ''; closeWithdrawModal(); 
-                
-                if(currentUser) {
-                    currentUser.mainBalance = currentMainBal - amt;
+        if (!currentUser || !currentUser.phone) {
+            return alert(currentLang === 'AM' ? "እባክዎ መጀመሪያ ይግቡ (Login)!" : "Please login first!");
+        }
+        let amt = parseFloat(document.getElementById('m-wit-amt').value);
+        let activeBtn = document.querySelector('#wit-bank-grid .bank-btn.active');
+        let method = activeBtn ? activeBtn.getAttribute('data-bankname') : 'telebirr';
+        let destAccount = document.getElementById('m-wit-phone').value.trim();
+        let accHolderName = document.getElementById('m-wit-acc-name') ? document.getElementById('m-wit-acc-name').value.trim() : '';
+
+        if (!method) return alert(currentLang === 'AM' ? "እባክዎ ባንክ ይምረጡ!" : "Please select a bank!");
+        if (!destAccount) return alert(currentLang === 'AM' ? "እባክዎ የመቀበያ ስልክ ቁጥር ወይም አካውንት ያስገቡ!" : "Please enter recipient phone or account number!");
+        if (!amt || amt < 50 || amt > 300000) return alert(currentLang === 'AM' ? "መጠን በ 50 እና 300,000 መሃል መሆን አለበት!" : "Amount must be between 50 and 300,000 ETB!");
+
+        let currentMainBal = parseFloat(currentUser.mainBalance) || 0;
+        if (amt > currentMainBal) return alert(currentLang === 'AM' ? "በዋና (ያሸነፉት) ሂሳብዎ ላይ በቂ ገንዘብ የሎትም!" : "Insufficient main balance!");
+
+        let btn = document.getElementById('m-wit-btn');
+        btn.innerText = currentLang === 'AM' ? "እየላከ ነው..." : "Submitting...";
+
+        const destinationInfo = accHolderName ? `${destAccount} (${accHolderName})` : destAccount;
+
+        try {
+            let res = await fetch('/api/request-tx', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phone: currentUser.phone,
+                    type: 'withdraw',
+                    amount: amt,
+                    method: method,
+                    destinationPhone: destinationInfo
+                })
+            });
+            let data = await res.json();
+            if (data.success) {
+                alert(data.message || (currentLang === 'AM' ? "✅ የወጪ (Withdraw) ጥያቄዎ ተልኳል! በቅርቡ ይስተናገዳል።" : "✅ Withdrawal request submitted!"));
+                document.getElementById('m-wit-amt').value = '';
+                closeWithdrawModal();
+
+                if (currentUser) {
+                    currentUser.mainBalance = Math.max(0, currentMainBal - amt);
                     updateUIBalance();
                 }
 
                 let hc = document.getElementById('wallet-history-list');
                 let noHist = document.getElementById('lbl-no-hist');
                 if (noHist) noHist.remove();
-                
+
                 let timeStr = new Date().toLocaleString();
                 let statText = data.status === 'Approved' ? '✅ APPROVED' : '⏳ PENDING';
                 let statClass = data.status === 'Approved' ? 'stat-approved' : 'stat-pending';
 
                 let newTx = `<div class="tx-card" style="border-left: 4px solid #fb7185;"><div class="tx-left"><span class="tx-type" style="color:#fb7185;">WITHDRAW (ወጪ) (${method})</span><span class="tx-status ${statClass}">${statText}</span><span class="tx-date">${timeStr}</span></div><div class="tx-right"><span class="tx-amt" style="color: #fb7185;">-${Number(amt).toLocaleString('en-US', {minimumFractionDigits: 2})} ETB</span></div></div>`;
-                
-                hc.insertAdjacentHTML('afterbegin', newTx);
-                while(hc.children.length > 100) hc.removeChild(hc.lastChild);
 
-                setTimeout(() => { fetchUpdatedBalance(); loadTransactionHistory(); }, 1500); 
-            } else { alert(data.message); } 
-        } catch(e) {}
+                if (hc) {
+                    hc.insertAdjacentHTML('afterbegin', newTx);
+                    while (hc.children.length > 100) hc.removeChild(hc.lastChild);
+                }
+
+                setTimeout(() => { fetchUpdatedBalance(); loadTransactionHistory(); }, 1200);
+            } else {
+                alert(data.message || "Error submitting withdrawal");
+            }
+        } catch (e) {
+            alert(currentLang === 'AM' ? "የኔትወርክ ስህተት አጋጥሟል!" : "Network error!");
+        }
         btn.innerText = currentLang === 'AM' ? "ወጪ አድርግ" : "WITHDRAW FUNDS";
     }
 
@@ -1610,6 +1761,10 @@
         document.getElementById('prof-btn-copy').onclick = () => { navigator.clipboard.writeText(myRefLink); alert(currentLang === 'AM' ? 'ሊንኩ ኮፒ ተደርጓል!' : 'Link Copied!'); };
         
         updateUIBalance(); document.getElementById('auth-page').classList.remove('active-page'); document.getElementById('navbar').style.display = 'flex'; document.getElementById('global-header').style.display = 'flex'; handleHomeNav(document.getElementById('nav-home'));
+        if (currentUser && currentUser.phone) {
+            socket.emit('get_initial_data', currentUser.phone);
+            loadActiveTicketsData(currentUser.phone);
+        }
     }
 
     async function fetchUpdatedBalance() {
@@ -1691,9 +1846,29 @@
     });
 
     socket.on('sync_data', (data) => {
+        if (data && data.gameId) {
+            currentServerGameId = data.gameId;
+            let trEl = document.getElementById('top-round-id'); if(trEl) trEl.innerText = '#' + data.gameId;
+            let gid = document.getElementById('g-id'); if(gid) gid.innerText = '#' + data.gameId;
+        }
+        if (data && (data.state === 'PLAYING' || data.state === 'RESOLVING_WINNERS')) {
+            isGameRunningLocally = true;
+            currentGameState = 'PLAYING';
+            document.getElementById('timer').innerText = "LIVE 🔴";
+            let statEl = document.getElementById('timer-status-text');
+            if (statEl) statEl.innerText = currentLang === 'AM' ? "ጨዋታው በመካሄድ ላይ ነው" : "Game is LIVE";
+        } else if (data && data.state === 'WAITING') {
+            isGameRunningLocally = false;
+            currentGameState = 'WAITING';
+            if (data.timer !== undefined) {
+                document.getElementById('timer').innerText = formatTime(data.timer);
+            }
+        }
         globalTakenTickets = data.globalTakenTickets || []; 
         called = data.calledNumbers || []; 
-        userTicketsData = Array.isArray(data.myTickets) ? data.myTickets : [];
+        userTicketsData = Array.isArray(data.myTickets)
+            ? data.myTickets.filter(t => t && (t.gameId === undefined || Number(t.gameId) === Number(currentServerGameId)))
+            : [];
         let gballs = document.getElementById('g-balls'); if(gballs) gballs.innerText = called.length + "/75"; 
         document.getElementById('t-page-balls').innerText = called.length + "/75"; 
         
@@ -1713,8 +1888,58 @@
         
         document.querySelectorAll('.mb-cell').forEach(c => c.classList.remove('called', 'current'));
         let hst = document.getElementById('history-scroll-top'); if(hst) hst.innerHTML = '';
-        document.getElementById('ticket-history-bar').innerHTML = '';
+        let thb = document.getElementById('ticket-history-bar');
+        if (thb) {
+            thb.innerHTML = called.length === 0
+                ? `<span style="color:var(--text-gray); font-size:11px;" id="lbl-hist-wait">${currentLang === 'AM' ? 'ገና አልጀመረም...' : 'Waiting to start...'}</span>`
+                : '';
+        }
         called.forEach((num, idx) => { updateLiveUI(num, idx === called.length - 1); });
+
+        if ((isGameRunningLocally || currentGameState === 'PLAYING') && currentUser && !document.getElementById('ticket-page').classList.contains('active-page')) {
+            showPage('ticket', document.getElementById('nav-item-ticket'));
+        }
+    });
+
+    socket.on('round_reset', (data) => {
+        if (data && data.gameId) {
+            currentServerGameId = data.gameId;
+            let trEl = document.getElementById('top-round-id'); if(trEl) trEl.innerText = '#' + data.gameId;
+            let gid = document.getElementById('g-id'); if(gid) gid.innerText = '#' + data.gameId;
+        }
+        isGameRunningLocally = false;
+        currentGameState = 'WAITING';
+        userTicketsData = [];
+        globalTakenTickets = [];
+        called = [];
+
+        document.getElementById('bingo-overlay').style.display = 'none';
+        if (data && data.timer !== undefined) {
+            document.getElementById('timer').innerText = formatTime(data.timer);
+        }
+        let statEl = document.getElementById('timer-status-text');
+        if (statEl) statEl.innerText = currentLang === 'AM' ? "ጨዋታው ሊጀምር ነው" : "Game is Starting";
+
+        document.querySelectorAll('.mb-cell').forEach(c => c.classList.remove('called', 'current'));
+        let hst = document.getElementById('history-scroll-top'); if(hst) hst.innerHTML = '';
+        document.getElementById('ticket-history-bar').innerHTML = `<span style="color:var(--text-gray); font-size:11px;" id="lbl-hist-wait">${currentLang === 'AM' ? 'ገና አልጀመረም...' : 'Waiting to start...'}</span>`;
+        let cb = document.getElementById('caller-ball'); if(cb) cb.innerText = "--";
+        let ticketCb = document.getElementById('ticket-caller-ball'); if(ticketCb) ticketCb.innerText = "--";
+        let gballs = document.getElementById('g-balls'); if(gballs) gballs.innerText = "0/75";
+        document.getElementById('t-page-balls').innerText = "0/75";
+
+        let navTicket = document.getElementById('nav-item-ticket');
+        if (navTicket) navTicket.style.display = 'none';
+
+        initGrid();
+        updateBetPreview();
+        document.getElementById('ticket-list').innerHTML = '';
+        let gmt = document.getElementById('game-mini-tickets'); if(gmt) gmt.innerHTML = '';
+        updateTicketInfoLabel();
+
+        if (currentUser && document.getElementById('ticket-page').classList.contains('active-page')) {
+            showPage('home', document.getElementById('nav-home'));
+        }
     });
 
     socket.on('update_taken_tickets', (ticketsArr) => { globalTakenTickets = ticketsArr; renderGridTakenStates(); });
@@ -1784,10 +2009,22 @@
         if(lblSelect) lblSelect.innerText = currentLang === 'AM' ? `ካርቴላ ይምረጡ (${currentTicketPrice} ብር)` : `Select Tickets (${currentTicketPrice} ETB)`;
 
         let dynBanner = document.getElementById('dynamic-dep-banner');
-        if(dynBanner) { dynBanner.innerHTML = currentLang === 'AM' ? "🎁 ልዩ ስጦታ<br>ከ 100 ብር ጀምሮ ገቢ ሲያደርጉ ተጨማሪ 20% ጉርሻ ያግኙ!" : "🎁 Special Gift<br>Get 20% bonus when you deposit 100 ETB or more!"; }
+        if (dynBanner) {
+            if (currentLang === 'AM') {
+                dynBanner.innerHTML = data.depBannerAm || "🎁 ልዩ ስጦታ<br>ከ 100 ብር ጀምሮ ገቢ ሲያደርጉ ተጨማሪ 20% ጉርሻ ያግኙ!";
+            } else {
+                dynBanner.innerHTML = data.depBannerEn || "🎁 Special Gift<br>Get 20% bonus when you deposit 100 ETB or more!";
+            }
+        }
         
         let dynWitBanner = document.getElementById('dynamic-wit-banner');
-        if(dynWitBanner) { dynWitBanner.innerHTML = currentLang === 'AM' ? "⚠️ <b>ማሳሰቢያ:</b> ለደህንነት ሲባል ገንዘብ ወጪ ማድረግ የሚቻለው <b>ሲመዘገቡ በተጠቀሙበት ስልክ ቁጥር</b> ብቻ ነው።" : "⚠️ <b>Notice:</b> For security reasons, you can only withdraw to the <b>phone number you registered with</b>."; }
+        if (dynWitBanner) {
+            if (currentLang === 'AM') {
+                dynWitBanner.innerHTML = data.witBannerAm || "⚠️ <b>ማሳሰቢያ:</b> ለደህንነት ሲባል ገንዘብ ወጪ ማድረግ የሚቻለው <b>ሲመዘገቡ በተጠቀሙበት ስልክ ቁጥር ወይም በራስዎ የባንክ አካውንት</b> ብቻ ነው።";
+            } else {
+                dynWitBanner.innerHTML = data.witBannerEn || "⚠️ <b>Notice:</b> For security reasons, withdrawals are processed to your verified account.";
+            }
+        }
 
         currentJackpotBoost = data.jackpotBoost || 0;
         let actualJackpot = Number(data.totalPrizePool || 0) + Number(currentJackpotBoost || 0);
@@ -1796,11 +2033,13 @@
         let jpAmtBox = document.getElementById('g-jp-amt'); if(jpAmtBox) jpAmtBox.innerText = actualJackpot.toLocaleString('en-US', {minimumFractionDigits: 2});
         let tPagePrize = document.getElementById('t-page-prize'); if(tPagePrize) tPagePrize.innerText = actualJackpot.toLocaleString('en-US', {minimumFractionDigits: 2}) + " ETB";
         
-        if (data.gameId) {
-            currentServerGameId = data.gameId;
-            let trEl = document.getElementById('top-round-id'); if(trEl) trEl.innerText = '#' + data.gameId;
+        const incomingGameId = data.gameId ? Number(data.gameId) : currentServerGameId;
+        const isNewRound = Boolean(incomingGameId && currentServerGameId && incomingGameId !== Number(currentServerGameId));
+        if (incomingGameId) {
+            currentServerGameId = incomingGameId;
+            let trEl = document.getElementById('top-round-id'); if(trEl) trEl.innerText = '#' + incomingGameId;
         }
-        let gid = document.getElementById('g-id'); if(gid && data.gameId) gid.innerText = "#" + data.gameId; 
+        let gid = document.getElementById('g-id'); if(gid && incomingGameId) gid.innerText = "#" + incomingGameId; 
         let gprize = document.getElementById('g-prize'); if(gprize) gprize.innerText = actualJackpot.toLocaleString('en-US', {minimumFractionDigits: 2});
         
         updateJackpotThresholdDisplay(data);
@@ -1813,15 +2052,17 @@
         let tla = document.getElementById('ticket-live-arrow'); if(tla) tla.style.display = 'none';
 
         if (data.bankInfo) {
-            depAccounts.telebirr = { num: data.bankInfo.tbNum, name: data.bankInfo.tbName };
-            depAccounts.cbe = { num: data.bankInfo.cbeNum, name: data.bankInfo.cbeName };
-            depAccounts.mpesa = { num: data.bankInfo.mpesaNum || '0700000000', name: data.bankInfo.mpesaName || 'Safaricom Name' };
+            depAccounts.telebirr = { num: data.bankInfo.tbNum || '0900000000', name: data.bankInfo.tbName || 'Phoenix Bingo' };
+            depAccounts.cbe = { num: (data.bankInfo.cbeNum && data.bankInfo.cbeNum !== '1000000000000') ? data.bankInfo.cbeNum : '0911000000', name: data.bankInfo.cbeName || 'Phoenix Bingo' };
+            depAccounts.mpesa = { num: data.bankInfo.mpesaNum || '0700000000', name: data.bankInfo.mpesaName || 'Phoenix Bingo' };
 
             let activeBtn = document.querySelector('#dep-bank-grid .bank-btn.active');
-            if (activeBtn) {
-                let method = activeBtn.getAttribute('data-bankname');
-                document.getElementById('m-dep-acc').innerText = depAccounts[method].num;
-                document.getElementById('m-dep-name').innerText = depAccounts[method].name;
+            let method = activeBtn ? activeBtn.getAttribute('data-bankname') : 'telebirr';
+            if (depAccounts[method]) {
+                const accEl = document.getElementById('m-dep-acc');
+                const nameEl = document.getElementById('m-dep-name');
+                if (accEl) accEl.innerText = depAccounts[method].num;
+                if (nameEl) nameEl.innerText = depAccounts[method].name;
             }
         }
 
@@ -1837,18 +2078,11 @@
         }
 
         if (data.state === "WAITING") {
+            const wasPlayingOrEnded = (currentGameState === "PLAYING" || currentGameState === "ENDED");
             isGameRunningLocally = false;
-            if(navTicket) navTicket.style.display = 'none'; 
             document.getElementById('bingo-overlay').style.display = 'none';
             document.getElementById('timer').innerText = formatTime(data.timer); 
             let statEl = document.getElementById('timer-status-text'); if(statEl) statEl.innerText = currentLang === 'AM' ? "ጨዋታው ሊጀምር ነው" : "Game is Starting";
-
-            const isNewRound = Boolean(data.gameId && currentServerGameId && data.gameId !== currentServerGameId);
-            if (data.gameId) {
-                currentServerGameId = data.gameId;
-                let trEl = document.getElementById('top-round-id'); if(trEl) trEl.innerText = '#' + data.gameId;
-                let gid = document.getElementById('g-id'); if(gid) gid.innerText = '#' + data.gameId;
-            }
 
             if (currentGameState !== "WAITING" || isNewRound) {
                 currentGameState = "WAITING";
@@ -1862,21 +2096,25 @@
                 document.getElementById('t-page-balls').innerText = "0/75"; 
                 called = []; 
                 
-                if (currentUser && isNewRound) {
-                    userTicketsData = []; globalTakenTickets = []; 
-                    initGrid(); updateBetPreview(); 
+                if (wasPlayingOrEnded || isNewRound) {
+                    userTicketsData = [];
+                    globalTakenTickets = []; 
+                    initGrid();
+                    updateBetPreview(); 
                     document.getElementById('ticket-list').innerHTML = ''; 
                     let gmt = document.getElementById('game-mini-tickets'); if(gmt) gmt.innerHTML = '';
-                    
                     updateTicketInfoLabel();
-                    
-                    if (document.getElementById('ticket-page').classList.contains('active-page')) { 
+                    if (navTicket) navTicket.style.display = 'none';
+                    if (currentUser && document.getElementById('ticket-page').classList.contains('active-page')) { 
                         showPage('home', document.getElementById('nav-home')); 
                     }
+                } else {
+                    userTicketsData = userTicketsData.filter(t => t && (t.gameId === undefined || Number(t.gameId) === Number(currentServerGameId)));
+                    if (navTicket) navTicket.style.display = userTicketsData.length > 0 ? 'flex' : 'none';
                 }
             }
             
-        } else if (data.state === "PLAYING") {
+        } else if (data.state === "PLAYING" || data.state === "RESOLVING_WINNERS") {
             isGameRunningLocally = true; 
             if(navTicket) navTicket.style.display = 'flex'; 
             
@@ -1887,6 +2125,7 @@
 
             if (currentGameState !== "PLAYING") {
                 currentGameState = "PLAYING"; 
+                renderConfirmedTickets();
                 if (currentUser && !document.getElementById('ticket-page').classList.contains('active-page')) { showPage('ticket', document.getElementById('nav-item-ticket')); }
             }
             called = data.calledNumbers || []; 
@@ -1897,6 +2136,7 @@
             let hst = document.getElementById('history-scroll-top'); if(hst) hst.innerHTML = '';
             document.getElementById('ticket-history-bar').innerHTML = '';
             called.forEach((num, idx) => { updateLiveUI(num, idx === called.length - 1); });
+            renderConfirmedTickets();
         }
     });
 
@@ -1977,12 +2217,42 @@
         return false;
     }
 
+    socket.on('numberDrawn', (data) => {
+        if (!data || !Array.isArray(data.history)) return;
+        if (!isGameRunningLocally) {
+            isGameRunningLocally = true;
+            currentGameState = 'PLAYING';
+            renderConfirmedTickets();
+        }
+        // Catch up any missed balls if player had temporary network lag
+        if (data.history.length > called.length + 1) {
+            called = [...data.history];
+            document.querySelectorAll('.mb-cell').forEach(c => c.classList.remove('called', 'current'));
+            let hst = document.getElementById('history-scroll-top'); if(hst) hst.innerHTML = '';
+            document.getElementById('ticket-history-bar').innerHTML = '';
+            called.forEach((n, idx) => { updateLiveUI(n, idx === called.length - 1); });
+            let gballs = document.getElementById('g-balls'); if(gballs) gballs.innerText = called.length + "/75";
+            document.getElementById('t-page-balls').innerText = called.length + "/75";
+            updateJackpotThresholdDisplay();
+        }
+    });
+
     socket.on('new_number', (num) => {
-        if (!isGameRunningLocally) return;
-        called.push(num); 
+        if (!isGameRunningLocally) {
+            isGameRunningLocally = true;
+            currentGameState = 'PLAYING';
+            renderConfirmedTickets();
+        }
+        if (!called.includes(num)) {
+            called.push(num);
+        }
         playNumberSound(num); 
         let gballs = document.getElementById('g-balls'); if(gballs) gballs.innerText = called.length + "/75"; 
         document.getElementById('t-page-balls').innerText = called.length + "/75"; 
+        let thb = document.getElementById('ticket-history-bar');
+        if (thb && (thb.innerText.includes('ገና') || thb.innerText.includes('Wait'))) {
+            thb.innerHTML = '';
+        }
         updateLiveUI(num, true);
         updateJackpotThresholdDisplay();
         userTicketsData.forEach(t => { 
