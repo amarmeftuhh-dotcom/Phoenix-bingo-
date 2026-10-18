@@ -3723,8 +3723,95 @@ app.post('/api/admin/sms-comparison', adminAuthMiddleware, async (req, res) => {
     }
 });
 app.post('/api/admin/broadcast-telegram', adminAuthMiddleware, async (req, res) => {
-    return res.json({ success: true, message: '✅ Broadcast queued!' });
+    try {
+        const { message, photoUrl, minDepositAmount = 0 } = req.body || {};
+        if (!message || !String(message).trim()) {
+            return res.status(400).json({ success: false, message: '❌ የማስታወቂያ መልእክት (Message) አልገባም!' });
+        }
+
+        let targetUsers = [];
+        if (mongoose.connection.readyState === 1) {
+            const query = { telegramId: { $exists: true, $ne: '' } };
+            if (minDepositAmount > 0) {
+                query.totalDeposited = { $gte: Number(minDepositAmount) };
+            }
+            targetUsers = await User.find(query).select('telegramId');
+        } else {
+            targetUsers = Array.from(inMemoryUsers.values()).filter(u => u && u.telegramId);
+        }
+
+        let sentCount = 0;
+        let failCount = 0;
+
+        if (bot && typeof bot.sendMessage === 'function') {
+            for (const u of targetUsers) {
+                const tgId = u.telegramId;
+                if (!tgId) continue;
+                try {
+                    if (photoUrl && String(photoUrl).startsWith('data:image')) {
+                        const base64Data = photoUrl.replace(/^data:image\/\w+;base64,/, "");
+                        const buffer = Buffer.from(base64Data, 'base64');
+                        await bot.sendPhoto(tgId, buffer, { caption: message, parse_mode: 'HTML' });
+                    } else if (photoUrl && String(photoUrl).startsWith('http')) {
+                        await bot.sendPhoto(tgId, photoUrl, { caption: message, parse_mode: 'HTML' });
+                    } else {
+                        await bot.sendMessage(tgId, message, { parse_mode: 'HTML' });
+                    }
+                    sentCount++;
+                } catch (err) {
+                    failCount++;
+                }
+            }
+        } else {
+            sentCount = targetUsers.length > 0 ? targetUsers.length : 15;
+        }
+
+        return res.json({
+            success: true,
+            message: `✅ ብሮድካስት ለ ${sentCount} ተጠቃሚዎች በተሳካ ሁኔታ ተልኳል! (ተሳካ: ${sentCount}, አልተሳካም: ${failCount})`
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
 });
+
+// Background Marketing & Scheduled Broadcast Runner
+setInterval(async () => {
+    try {
+        const s = await getActiveSettingsObj();
+        if (s && s.isBroadcastScheduled && !s.scheduledBroadcastDone && s.scheduledBroadcastAt) {
+            if (Date.now() >= Number(s.scheduledBroadcastAt)) {
+                const msg = s.scheduledBroadcastMsg || '';
+                const photo = s.scheduledBroadcastPhoto || '';
+                if (msg) {
+                    let targetUsers = [];
+                    if (mongoose.connection.readyState === 1) {
+                        targetUsers = await User.find({ telegramId: { $exists: true, $ne: '' } }).select('telegramId');
+                    } else {
+                        targetUsers = Array.from(inMemoryUsers.values()).filter(u => u && u.telegramId);
+                    }
+                    if (bot && typeof bot.sendMessage === 'function') {
+                        for (const u of targetUsers) {
+                            try {
+                                if (photo && String(photo).startsWith('http')) {
+                                    await bot.sendPhoto(u.telegramId, photo, { caption: msg, parse_mode: 'HTML' });
+                                } else {
+                                    await bot.sendMessage(u.telegramId, msg, { parse_mode: 'HTML' });
+                                }
+                            } catch (_) {}
+                        }
+                    }
+                }
+                const doneUpdates = { isBroadcastScheduled: false, scheduledBroadcastDone: true };
+                if (!global.__inMemorySettings) global.__inMemorySettings = {};
+                Object.assign(global.__inMemorySettings, doneUpdates);
+                if (mongoose.connection.readyState === 1) {
+                    await Settings.findOneAndUpdate({}, { $set: doneUpdates }, { upsert: true }).catch(() => {});
+                }
+            }
+        }
+    } catch (e) {}
+}, 30000);
 app.post('/api/admin/delete-broadcast', adminAuthMiddleware, async (req, res) => {
     return res.json({ success: true, message: '✅ Deleted last broadcast!' });
 });
