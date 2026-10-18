@@ -1592,13 +1592,24 @@ app.post('/api/telegram-login', async (req, res) => {
 
         // Extracted ONLY from the cryptographically verified Telegram user object
         const verifiedTgId = String(verification.telegramUser.id).trim();
-        const user = await findUserByTgOrPhone(verifiedTgId, null);
+        const tgFirstName = verification.telegramUser.first_name || verification.telegramUser.username || 'Telegram User';
+        let user = await findUserByTgOrPhone(verifiedTgId, null);
 
-        if (!user || !user.phone) {
-            return res.status(404).json({ 
-                success: false, 
-                message: '❌ ተጠቃሚው በዳታቤዝ ውስጥ አልተመዘገበም! እባክዎ መጀመሪያ ቦቱን ጀምረው በቴሌግራም ይመዝገቡ।' 
+        if (!user) {
+            const dummyPhone = '09' + Math.floor(10000000 + Math.random() * 90000000);
+            user = new User({
+                telegramId: verifiedTgId,
+                phone: dummyPhone,
+                name: tgFirstName,
+                password: await hashPassword('tg_auto_' + verifiedTgId),
+                mainBalance: 15,
+                playBalance: 0
             });
+            if (mongoose.connection.readyState === 1) {
+                await user.save().catch(() => {});
+            } else {
+                inMemoryUsers.set(dummyPhone, user);
+            }
         }
 
         if (user.isBlocked) {
