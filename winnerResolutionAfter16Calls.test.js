@@ -171,8 +171,34 @@ async function runTests() {
     assert.strictEqual(currentGame.state, 'ENDED');
     console.log('✓ 4. Bot winner "አበበ" resolved safely with winning card and pattern.');
 
+    // --- TEST 5: Strict Admin control over Bots & Jackpot (No automatic 192 ETB jackpot) ---
+    console.log('\n--- Test 5: Strict Admin control over Bots & Jackpot ---');
+    resetGame();
+    global.__inMemorySettings.isBotSystemActive = false;
+    global.__inMemorySettings.botDist1 = 0;
+    global.__inMemorySettings.botDist2 = 0;
+    global.__inMemorySettings.botDist3 = 0;
+    global.__inMemorySettings.botDist4 = 0;
+    startCountdown();
+    const statusWhenOff = getGameStatusPayload();
+    assert.strictEqual(statusWhenOff.totalPrizePool, 0, 'Jackpot must be 0 ETB (never auto-192) when Admin has not enabled bots');
+    assert.strictEqual(Object.keys(statusWhenOff.selectedCards).length, 0, 'No bot cards may be selected when Admin bot system is OFF');
+
+    // Now Admin enables bots with exact quantities: 2 bots with 1 card, 1 bot with 2 cards = 4 cards total (4 * 8 = 32 ETB jackpot)
+    global.__inMemorySettings.isBotSystemActive = true;
+    global.__inMemorySettings.botDist1 = 2;
+    global.__inMemorySettings.botDist2 = 1;
+    global.__inMemorySettings.botDist3 = 0;
+    global.__inMemorySettings.botDist4 = 0;
+    resetGame();
+    startCountdown();
+    const statusWhenConfigured = getGameStatusPayload();
+    assert.strictEqual(Object.keys(statusWhenConfigured.selectedCards).length, 4, 'Must have exactly 4 cards from Admin-configured bots (2x1 + 1x2)');
+    assert.strictEqual(statusWhenConfigured.totalPrizePool, 32, 'Jackpot must equal exact Admin bot cards * 8 ETB = 32 ETB');
+    console.log('✓ 5. Strict Admin control verified: 0 ETB default (no auto-192) and exact Admin bot quantities enforced.');
+
     console.log('\n======================================================');
-    console.log('🎉 ALL WINNER RESOLUTION AFTER 16 CALLS TESTS PASSED! ✅');
+    console.log('🎉 ALL WINNER RESOLUTION & ADMIN CONTROL TESTS PASSED! ✅');
     console.log('======================================================\n');
 }
 

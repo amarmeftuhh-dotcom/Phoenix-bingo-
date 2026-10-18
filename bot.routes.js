@@ -25,13 +25,13 @@ let inMemoryBots = ETHIOPIAN_BOT_NAMES.slice(0, 30).map((name, idx) => ({
 }));
 
 let inMemoryBotSettings = {
-    isBotSystemActive: true,
+    isBotSystemActive: false,
     botWinnerForce: 'mix',
     mixBotCount: 1,
-    botDist1: 5,
-    botDist2: 4,
-    botDist3: 3,
-    botDist4: 3,
+    botDist1: 0,
+    botDist2: 0,
+    botDist3: 0,
+    botDist4: 0,
     isBotScheduleActive: false,
     botStepSeconds: 5,
     botSlots: []
@@ -51,6 +51,9 @@ async function getBotsFromStore(mongoose) {
 async function getSettingsFromStore(SystemSettings, mongoose) {
     if (mongoose && mongoose.connection && mongoose.connection.readyState === 1 && SystemSettings) {
         let s = await SystemSettings.findOne();
+        if (!s && mongoose.models.Settings) {
+            s = await mongoose.models.Settings.findOne();
+        }
         if (!s) {
             s = new SystemSettings(inMemoryBotSettings);
             await s.save().catch(() => {});
@@ -69,18 +72,19 @@ module.exports = function(SystemSettings, loadSettings, auth, context = {}) {
             const bots = await getBotsFromStore(mongoose);
             const s = await getSettingsFromStore(SystemSettings, mongoose);
             const settingsObj = (s && typeof s.toObject === 'function') ? s.toObject() : (s || {});
+            const merged = { ...inMemoryBotSettings, ...(global.__inMemorySettings || {}), ...settingsObj };
             res.json({
                 success: true,
                 bots: bots || [],
                 settings: {
-                    isBotSystemActive: settingsObj.isBotSystemActive !== false,
-                    botWinnerForce: settingsObj.botWinnerForce || 'mix',
-                    mixBotCount: settingsObj.mixBotCount || 1,
-                    botDist1: settingsObj.botDist1 ?? 5,
-                    botDist2: settingsObj.botDist2 ?? 4,
-                    botDist3: settingsObj.botDist3 ?? 3,
-                    botDist4: settingsObj.botDist4 ?? 3,
-                    isBotScheduleActive: !!settingsObj.isBotScheduleActive
+                    isBotSystemActive: !!merged.isBotSystemActive,
+                    botWinnerForce: merged.botWinnerForce || 'mix',
+                    mixBotCount: Number(merged.mixBotCount) || 1,
+                    botDist1: Number(merged.botDist1 ?? 0),
+                    botDist2: Number(merged.botDist2 ?? 0),
+                    botDist3: Number(merged.botDist3 ?? 0),
+                    botDist4: Number(merged.botDist4 ?? 0),
+                    isBotScheduleActive: !!merged.isBotScheduleActive
                 }
             });
         } catch (e) {
@@ -94,20 +98,27 @@ module.exports = function(SystemSettings, loadSettings, auth, context = {}) {
             const updates = {};
             if (req.body.isBotSystemActive !== undefined) updates.isBotSystemActive = !!req.body.isBotSystemActive;
             if (req.body.botWinnerForce !== undefined) updates.botWinnerForce = req.body.botWinnerForce;
-            if (req.body.mixBotCount !== undefined) updates.mixBotCount = Number(req.body.mixBotCount) || 1;
-            if (req.body.botDist1 !== undefined) updates.botDist1 = Number(req.body.botDist1) || 0;
-            if (req.body.botDist2 !== undefined) updates.botDist2 = Number(req.body.botDist2) || 0;
-            if (req.body.botDist3 !== undefined) updates.botDist3 = Number(req.body.botDist3) || 0;
-            if (req.body.botDist4 !== undefined) updates.botDist4 = Number(req.body.botDist4) || 0;
+            if (req.body.mixBotCount !== undefined) updates.mixBotCount = Math.max(1, Number(req.body.mixBotCount) || 1);
+            if (req.body.botDist1 !== undefined) updates.botDist1 = Math.max(0, parseInt(req.body.botDist1, 10) || 0);
+            if (req.body.botDist2 !== undefined) updates.botDist2 = Math.max(0, parseInt(req.body.botDist2, 10) || 0);
+            if (req.body.botDist3 !== undefined) updates.botDist3 = Math.max(0, parseInt(req.body.botDist3, 10) || 0);
+            if (req.body.botDist4 !== undefined) updates.botDist4 = Math.max(0, parseInt(req.body.botDist4, 10) || 0);
             if (req.body.isBotScheduleActive !== undefined) updates.isBotScheduleActive = !!req.body.isBotScheduleActive;
 
             Object.assign(inMemoryBotSettings, updates);
+            if (!global.__inMemorySettings) global.__inMemorySettings = {};
+            Object.assign(global.__inMemorySettings, updates);
 
-            if (mongoose && mongoose.connection && mongoose.connection.readyState === 1 && SystemSettings) {
-                await SystemSettings.findOneAndUpdate({}, { $set: updates }, { upsert: true, new: true });
+            if (mongoose && mongoose.connection && mongoose.connection.readyState === 1) {
+                if (SystemSettings) {
+                    await SystemSettings.findOneAndUpdate({}, { $set: updates }, { upsert: true, new: true }).catch(() => {});
+                }
+                if (mongoose.models.Settings && mongoose.models.Settings !== SystemSettings) {
+                    await mongoose.models.Settings.findOneAndUpdate({}, { $set: updates }, { upsert: true, new: true }).catch(() => {});
+                }
             }
             if (typeof loadSettings === 'function') {
-                await loadSettings();
+                await loadSettings({ forceSync: true, updates });
             }
             res.json({ success: true, settings: inMemoryBotSettings });
         } catch (e) {
@@ -121,8 +132,11 @@ module.exports = function(SystemSettings, loadSettings, auth, context = {}) {
             const { botId, name, phone, cardsCount, isActive } = req.body;
             const cleanCards = Math.max(1, Math.min(4, Number(cardsCount) || 1));
             const cleanActive = isActive !== false;
+            let oldPhone = phone;
 
             if (mongoose && mongoose.connection && mongoose.connection.readyState === 1 && !String(botId).startsWith('bot_')) {
+                const existing = await BotUser.findById(botId).catch(() => null);
+                if (existing && existing.phone) oldPhone = existing.phone;
                 await BotUser.findByIdAndUpdate(botId, {
                     name,
                     phone,
@@ -132,10 +146,16 @@ module.exports = function(SystemSettings, loadSettings, auth, context = {}) {
             }
             const memBot = inMemoryBots.find(b => String(b._id) === String(botId));
             if (memBot) {
+                oldPhone = memBot.phone || oldPhone;
                 memBot.name = name || memBot.name;
                 memBot.phone = phone || memBot.phone;
                 memBot.cardsCount = cleanCards;
                 memBot.isActive = cleanActive;
+            }
+            if (typeof loadSettings === 'function') {
+                await loadSettings({
+                    editedBot: { botId, oldPhone, name, phone, cardsCount: cleanCards, isActive: cleanActive }
+                });
             }
             res.json({ success: true, message: "Bot successfully updated!" });
         } catch (e) {
@@ -205,10 +225,17 @@ module.exports = function(SystemSettings, loadSettings, auth, context = {}) {
     router.post('/delete-bot', auth, async (req, res) => {
         try {
             const { id } = req.body;
+            let deletedPhone = null;
             if (mongoose && mongoose.connection && mongoose.connection.readyState === 1 && !String(id).startsWith('bot_')) {
-                await BotUser.findByIdAndDelete(id);
+                const doc = await BotUser.findByIdAndDelete(id).catch(() => null);
+                if (doc && doc.phone) deletedPhone = doc.phone;
             }
+            const foundMem = inMemoryBots.find(b => String(b._id) === String(id));
+            if (foundMem && foundMem.phone) deletedPhone = foundMem.phone;
             inMemoryBots = inMemoryBots.filter(b => String(b._id) !== String(id));
+            if (typeof loadSettings === 'function') {
+                await loadSettings({ deletedBotPhone: deletedPhone });
+            }
             res.json({ success: true, message: "Bot deleted!" });
         } catch (e) {
             res.json({ success: false, message: e.message });

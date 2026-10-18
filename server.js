@@ -308,13 +308,14 @@ const SettingsSchema = new mongoose.Schema({
     cbeAccountNumber: { type: String, default: '1000000000000' },
     mpesaAccountName: { type: String, default: 'Phoenix Bingo' },
     mpesaAccountNumber: { type: String, default: '0700000000' },
-    isBotSystemActive: { type: Boolean, default: true },
+    isBotSystemActive: { type: Boolean, default: false },
+    adminConfiguredBots: { type: Boolean, default: false },
     botWinnerForce: { type: String, default: 'mix' },
     mixBotCount: { type: Number, default: 1 },
-    botDist1: { type: Number, default: 5 },
-    botDist2: { type: Number, default: 4 },
-    botDist3: { type: Number, default: 3 },
-    botDist4: { type: Number, default: 3 },
+    botDist1: { type: Number, default: 0 },
+    botDist2: { type: Number, default: 0 },
+    botDist3: { type: Number, default: 0 },
+    botDist4: { type: Number, default: 0 },
     isBotScheduleActive: { type: Boolean, default: false },
     botStepSeconds: { type: Number, default: 5 },
     botSlots: { type: Array, default: [] },
@@ -351,9 +352,12 @@ const Deposit = mongoose.models.Deposit || mongoose.model('Deposit', DepositSche
 const Withdrawal = mongoose.models.Withdrawal || mongoose.model('Withdrawal', WithdrawalSchema);
 const BankSMS = mongoose.models.BankSMS || mongoose.model('BankSMS', BankSMSSchema);
 const Game = mongoose.models.Game || mongoose.model('Game', GameSchema);
+const GameHistory = mongoose.models.GameHistory || mongoose.model('GameHistory', GameSchema);
 const Transaction = mongoose.models.Transaction || mongoose.model('Transaction', TransactionSchema);
 const Settings = mongoose.models.Settings || mongoose.model('Settings', SettingsSchema);
+const SystemSettings = mongoose.models.SystemSettings || mongoose.model('SystemSettings', SettingsSchema);
 const Promo = mongoose.models.Promo || mongoose.model('Promo', PromoSchema);
+const PromoCode = mongoose.models.PromoCode || mongoose.model('PromoCode', PromoSchema);
 
 async function ensureDatabaseIndexes() {
     if (mongoose.connection && mongoose.connection.readyState === 1) {
@@ -378,13 +382,45 @@ async function rehydrateSettingsAndRecoverPayouts() {
     if (mongoose.connection && mongoose.connection.readyState === 1) {
         try {
             await ensureDatabaseIndexes();
-            const savedSettings = await Settings.findOne();
+            let savedSettings = await SystemSettings.findOne().catch(() => null);
+            if (!savedSettings) {
+                savedSettings = await Settings.findOne().catch(() => null);
+            }
             if (savedSettings) {
-                if (savedSettings.jackpotThreshold) {
-                    currentGame.jackpotThreshold = validateJackpotThreshold(savedSettings.jackpotThreshold);
+                const sObj = typeof savedSettings.toObject === 'function' ? savedSettings.toObject() : savedSettings;
+                // If an old unconfigured default (5,4,3,3) was auto-created without Admin saving, reset it to 0
+                if (!sObj.adminConfiguredBots && sObj.botDist1 === 5 && sObj.botDist2 === 4 && sObj.botDist3 === 3 && sObj.botDist4 === 3) {
+                    const resetDefaults = {
+                        isBotSystemActive: false,
+                        botDist1: 0,
+                        botDist2: 0,
+                        botDist3: 0,
+                        botDist4: 0,
+                        adminConfiguredBots: true
+                    };
+                    await SystemSettings.updateMany({}, { $set: resetDefaults }).catch(() => {});
+                    await Settings.updateMany({}, { $set: resetDefaults }).catch(() => {});
+                    Object.assign(sObj, resetDefaults);
                 }
-                if (savedSettings.gameStake && Number(savedSettings.gameStake) > 0) {
-                    currentGame.stake = Number(savedSettings.gameStake);
+                if (!global.__inMemorySettings) global.__inMemorySettings = {};
+                Object.assign(global.__inMemorySettings, sObj);
+                if (botRoutesFn && botRoutesFn.inMemoryBotSettings) {
+                    Object.assign(botRoutesFn.inMemoryBotSettings, {
+                        isBotSystemActive: !!sObj.isBotSystemActive,
+                        botWinnerForce: sObj.botWinnerForce || 'mix',
+                        mixBotCount: Number(sObj.mixBotCount) || 1,
+                        botDist1: Number(sObj.botDist1 ?? 0),
+                        botDist2: Number(sObj.botDist2 ?? 0),
+                        botDist3: Number(sObj.botDist3 ?? 0),
+                        botDist4: Number(sObj.botDist4 ?? 0),
+                        isBotScheduleActive: !!sObj.isBotScheduleActive
+                    });
+                }
+                if (sObj.jackpotThreshold) {
+                    currentGame.jackpotThreshold = validateJackpotThreshold(sObj.jackpotThreshold);
+                }
+                if ((sObj.ticketPrice || sObj.gameStake) && Number(sObj.ticketPrice || sObj.gameStake) > 0) {
+                    currentGame.stake = Number(sObj.ticketPrice || sObj.gameStake);
                 }
             }
             // Recover any completed games that have winners but missed payout processing
@@ -1043,7 +1079,20 @@ const adminAuthMiddleware = (req, res, next) => {
     return next();
 };
 
-const botRoutesFn = typeof botRoutes === 'function' ? botRoutes(Settings, async () => {}, adminAuthMiddleware) : botRoutes;
+const botRoutesFn = typeof botRoutes === 'function'
+    ? botRoutes(SystemSettings, async (eventMeta = {}) => {
+        try {
+            if (eventMeta && eventMeta.updates && mongoose.connection.readyState === 1) {
+                const withFlag = { ...eventMeta.updates, adminConfiguredBots: true };
+                await SystemSettings.findOneAndUpdate({}, { $set: withFlag }, { upsert: true }).catch(() => {});
+                await Settings.findOneAndUpdate({}, { $set: withFlag }, { upsert: true }).catch(() => {});
+            }
+            if (typeof syncLiveBotsOnAdminChange === 'function') {
+                await syncLiveBotsOnAdminChange(eventMeta);
+            }
+        } catch (_) {}
+    }, adminAuthMiddleware)
+    : botRoutes;
 app.use('/api/bot', botRoutesFn);
 app.use('/api/admin', botRoutesFn);
 
@@ -2025,6 +2074,21 @@ const inMemoryPromos = [];
 let inMemoryClaimPromo = null;
 let inMemorySeason = { status: 'idle', end: 0, paid: false };
 
+if (!global.__inMemorySettings) {
+    global.__inMemorySettings = {
+        isBotSystemActive: false,
+        botWinnerForce: 'mix',
+        mixBotCount: 1,
+        botDist1: 0,
+        botDist2: 0,
+        botDist3: 0,
+        botDist4: 0,
+        isBotScheduleActive: false,
+        botStepSeconds: 5,
+        botSlots: []
+    };
+}
+
 async function getActiveSettingsObj() {
     let base = {
         ticketPrice: currentGame.stake || 10,
@@ -2044,14 +2108,14 @@ async function getActiveSettingsObj() {
         cbeAccountNumber: '1000000000000',
         mpesaAccountName: 'Phoenix Bingo',
         mpesaAccountNumber: '0700000000',
-        isBotSystemActive: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.isBotSystemActive : true,
+        isBotSystemActive: botRoutesFn && botRoutesFn.inMemoryBotSettings ? !!botRoutesFn.inMemoryBotSettings.isBotSystemActive : false,
         botWinnerForce: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.botWinnerForce : 'mix',
         mixBotCount: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.mixBotCount : 1,
-        botDist1: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.botDist1 : 5,
-        botDist2: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.botDist2 : 4,
-        botDist3: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.botDist3 : 3,
-        botDist4: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.botDist4 : 3,
-        isBotScheduleActive: botRoutesFn && botRoutesFn.inMemoryBotSettings ? botRoutesFn.inMemoryBotSettings.isBotScheduleActive : false,
+        botDist1: botRoutesFn && botRoutesFn.inMemoryBotSettings ? Number(botRoutesFn.inMemoryBotSettings.botDist1 ?? 0) : 0,
+        botDist2: botRoutesFn && botRoutesFn.inMemoryBotSettings ? Number(botRoutesFn.inMemoryBotSettings.botDist2 ?? 0) : 0,
+        botDist3: botRoutesFn && botRoutesFn.inMemoryBotSettings ? Number(botRoutesFn.inMemoryBotSettings.botDist3 ?? 0) : 0,
+        botDist4: botRoutesFn && botRoutesFn.inMemoryBotSettings ? Number(botRoutesFn.inMemoryBotSettings.botDist4 ?? 0) : 0,
+        isBotScheduleActive: botRoutesFn && botRoutesFn.inMemoryBotSettings ? !!botRoutesFn.inMemoryBotSettings.isBotScheduleActive : false,
         botStepSeconds: 5,
         botSlots: [],
         isGamePaused: false,
@@ -2065,13 +2129,15 @@ async function getActiveSettingsObj() {
     };
     if (mongoose.connection.readyState === 1) {
         try {
-            const s = await Settings.findOne();
+            let s = await SystemSettings.findOne().catch(() => null);
+            if (!s) s = await Settings.findOne().catch(() => null);
             if (s) {
                 const sObj = typeof s.toObject === 'function' ? s.toObject() : s;
                 base = { ...base, ...sObj };
             }
         } catch (_) {}
-    } else if (global.__inMemorySettings) {
+    }
+    if (global.__inMemorySettings) {
         base = { ...base, ...global.__inMemorySettings };
     }
     return base;
@@ -2741,7 +2807,7 @@ app.post('/api/admin/user-details', adminAuthMiddleware, async (req, res) => {
     }
 });
 
-// 10. Admin Edit User (/api/admin/edit-user)
+// 10. Admin Edit User (/api/admin/edit-user) & Delete User (/api/admin/delete-user)
 app.post('/api/admin/edit-user', adminAuthMiddleware, async (req, res) => {
     try {
         const { oldPhone, newPhone, name, userPass, mainBalance, playBalance, won } = req.body || {};
@@ -2749,26 +2815,59 @@ app.post('/api/admin/edit-user', adminAuthMiddleware, async (req, res) => {
         const user = await findUserByTgOrPhone(null, cleanOld);
         if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-        if (name) user.name = String(name).trim();
-        if (newPhone) user.phone = normalizePhoneNumber(newPhone) || String(newPhone).trim();
+        const targetPhone = newPhone ? (normalizePhoneNumber(newPhone) || String(newPhone).trim()) : cleanOld;
+        if (name !== undefined && String(name).trim()) user.name = String(name).trim();
+        if (targetPhone) user.phone = targetPhone;
         if (userPass && !String(userPass).includes('•') && userPass !== 'Telegram') {
             user.password = await hashPassword(String(userPass));
         }
-        if (mainBalance !== undefined) {
+        if (mainBalance !== undefined && mainBalance !== '') {
             user.mainBalance = Number(mainBalance);
             user.balance = Number(mainBalance);
         }
-        if (playBalance !== undefined) {
+        if (playBalance !== undefined && playBalance !== '') {
             user.playBalance = Number(playBalance);
             user.bonusBalance = Number(playBalance);
         }
-        if (won !== undefined) {
+        if (won !== undefined && won !== '') {
             user.won = Number(won);
             user.totalWon = Number(won);
         }
 
-        if (typeof user.save === 'function') await user.save().catch(() => {});
+        if (typeof user.save === 'function') {
+            await user.save().catch(() => {});
+        } else if (mongoose.connection.readyState === 1) {
+            await User.findOneAndUpdate(
+                { $or: [{ phone: cleanOld }, { phone: oldPhone }] },
+                {
+                    $set: {
+                        name: user.name,
+                        phone: user.phone,
+                        mainBalance: user.mainBalance,
+                        balance: user.mainBalance,
+                        playBalance: user.playBalance,
+                        bonusBalance: user.playBalance,
+                        won: user.won,
+                        totalWon: user.won
+                    }
+                }
+            ).catch(() => {});
+        }
+        if (cleanOld !== user.phone) inMemoryUsers.delete(cleanOld);
         inMemoryUsers.set(user.phone, user);
+
+        for (const p of currentGame.players.values()) {
+            if (p.phone === cleanOld || p.phone === oldPhone) {
+                p.phone = user.phone;
+                p.name = user.name;
+            }
+        }
+        for (const seat of currentGame.selectedCards.values()) {
+            if (seat && (seat.phone === cleanOld || seat.phone === oldPhone)) {
+                seat.phone = user.phone;
+                seat.name = user.name;
+            }
+        }
 
         io.emit('balance_updated', {
             phone: user.phone,
@@ -2783,6 +2882,35 @@ app.post('/api/admin/edit-user', adminAuthMiddleware, async (req, res) => {
     }
 });
 
+app.post('/api/admin/delete-user', adminAuthMiddleware, async (req, res) => {
+    try {
+        const rawPhone = req.body.phone;
+        const cleanPhone = normalizePhoneNumber(rawPhone) || String(rawPhone || '').trim();
+        if (!cleanPhone) return res.status(400).json({ success: false, message: 'Phone required' });
+
+        if (mongoose.connection.readyState === 1) {
+            await User.deleteMany({ $or: [{ phone: cleanPhone }, { phone: rawPhone }, { userId: cleanPhone }] }).catch(() => {});
+        }
+        inMemoryUsers.delete(cleanPhone);
+        inMemoryUsers.delete(rawPhone);
+
+        for (const [tid, seat] of Array.from(currentGame.selectedCards.entries())) {
+            if (seat && (seat.phone === cleanPhone || seat.phone === rawPhone)) {
+                currentGame.selectedCards.delete(tid);
+            }
+        }
+        for (const [sockId, p] of Array.from(currentGame.players.entries())) {
+            if (p && (p.phone === cleanPhone || p.phone === rawPhone)) {
+                currentGame.players.delete(sockId);
+            }
+        }
+        recalcLiveGamePotAndBroadcast();
+        return res.json({ success: true, message: 'User deleted!' });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // 11. Admin Ban / Unban User (/api/admin/ban-user & /api/admin/unban-user)
 app.post('/api/admin/ban-user', adminAuthMiddleware, async (req, res) => {
     try {
@@ -2791,6 +2919,10 @@ app.post('/api/admin/ban-user', adminAuthMiddleware, async (req, res) => {
         if (user) {
             user.isBlocked = true;
             if (typeof user.save === 'function') await user.save().catch(() => {});
+            inMemoryUsers.set(cleanPhone, user);
+        }
+        if (mongoose.connection.readyState === 1) {
+            await User.updateMany({ $or: [{ phone: cleanPhone }, { phone: req.body.phone }] }, { $set: { isBlocked: true } }).catch(() => {});
         }
         return res.json({ success: true });
     } catch (err) {
@@ -2805,6 +2937,10 @@ app.post('/api/admin/unban-user', adminAuthMiddleware, async (req, res) => {
         if (user) {
             user.isBlocked = false;
             if (typeof user.save === 'function') await user.save().catch(() => {});
+            inMemoryUsers.set(cleanPhone, user);
+        }
+        if (mongoose.connection.readyState === 1) {
+            await User.updateMany({ $or: [{ phone: cleanPhone }, { phone: req.body.phone }] }, { $set: { isBlocked: false } }).catch(() => {});
         }
         return res.json({ success: true });
     } catch (err) {
@@ -2812,22 +2948,104 @@ app.post('/api/admin/unban-user', adminAuthMiddleware, async (req, res) => {
     }
 });
 
+function buildLiveGamePlayersArray() {
+    const byPhone = new Map();
+    for (const player of currentGame.players.values()) {
+        if (player && Array.isArray(player.tickets) && player.tickets.length > 0) {
+            const pPhone = player.phone || '0900000000';
+            byPhone.set(pPhone, {
+                name: player.name || 'Player',
+                phone: pPhone,
+                isBot: false,
+                gameId: currentGame.gameId,
+                ticketPrice: currentGame.stake || 10,
+                tickets: player.tickets.length,
+                ticketsCount: player.tickets.length,
+                ticketIds: player.tickets.map(t => parseInt(t.id, 10)),
+                ticketsData: player.tickets.map(t => ({
+                    id: parseInt(t.id, 10),
+                    grid: t.grid || generateFixedCard(parseInt(t.id, 10))
+                }))
+            });
+        }
+    }
+    for (const [tid, seat] of currentGame.selectedCards.entries()) {
+        if (!seat) continue;
+        const pPhone = seat.phone || '0900000000';
+        if (!byPhone.has(pPhone)) {
+            byPhone.set(pPhone, {
+                name: seat.name || (seat.isBot ? 'Bot' : 'Player'),
+                phone: pPhone,
+                isBot: !!seat.isBot,
+                gameId: currentGame.gameId,
+                ticketPrice: currentGame.stake || 10,
+                tickets: 0,
+                ticketsCount: 0,
+                ticketIds: [],
+                ticketsData: []
+            });
+        }
+        const entry = byPhone.get(pPhone);
+        if (!entry.ticketIds.includes(Number(tid))) {
+            entry.tickets++;
+            entry.ticketsCount++;
+            entry.ticketIds.push(Number(tid));
+            entry.ticketsData.push({
+                id: Number(tid),
+                grid: generateFixedCard(Number(tid))
+            });
+        }
+    }
+    return Array.from(byPhone.values());
+}
+
+function recalcLiveGamePotAndBroadcast() {
+    const totalTickets = currentGame.selectedCards.size;
+    currentGame.totalJackpot = totalTickets * (currentGame.stake || 10);
+    currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
+    io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
+    io.emit('game_status', getGameStatusPayload());
+}
+
 // 12. Admin Search Player Bets (/api/admin/search-bets) & Delete Bet (/api/admin/delete-game-player)
 app.post('/api/admin/search-bets', adminAuthMiddleware, async (req, res) => {
     try {
         const searchVal = String(req.body.search || '').trim();
-        let docs = [];
-        if (mongoose.connection.readyState === 1) {
-            docs = await Game.find({ status: 'COMPLETED' }).sort({ gameId: -1 }).limit(100);
-        } else {
-            docs = inMemoryGames.filter(g => g.status === 'COMPLETED');
+        const matchedGames = [];
+
+        // Check live game first
+        const livePlayers = buildLiveGamePlayersArray();
+        const liveMatch = livePlayers.some(p => {
+            if (!searchVal) return true;
+            if (p.phone && String(p.phone).includes(searchVal)) return true;
+            if (p.name && String(p.name).toLowerCase().includes(searchVal.toLowerCase())) return true;
+            if (!isNaN(searchVal) && Array.isArray(p.ticketIds) && p.ticketIds.some(id => String(id) === searchVal)) return true;
+            return false;
+        });
+        if (liveMatch && livePlayers.length > 0) {
+            matchedGames.push({
+                _id: 'live_' + currentGame.gameId,
+                gameId: currentGame.gameId,
+                date: new Date(),
+                ticketPrice: currentGame.stake || 10,
+                calledNumbers: currentGame.drawnNumbers || [],
+                playersData: livePlayers
+            });
         }
 
-        const matchedGames = [];
+        let docs = [];
+        if (mongoose.connection.readyState === 1) {
+            docs = await Game.find().sort({ gameId: -1 }).limit(100);
+        } else {
+            docs = [...inMemoryGames];
+        }
+
         for (const g of docs) {
             const pList = Array.isArray(g.playersData) ? g.playersData : [];
             const hasMatch = pList.some(p => {
+                if (!searchVal) return true;
                 if (p.phone && String(p.phone).includes(searchVal)) return true;
+                if (p.name && String(p.name).toLowerCase().includes(searchVal.toLowerCase())) return true;
                 if (!isNaN(searchVal) && Array.isArray(p.ticketsData) && p.ticketsData.some(t => String(t.id) === searchVal)) return true;
                 if (!isNaN(searchVal) && Array.isArray(p.ticketIds) && p.ticketIds.some(id => String(id) === searchVal)) return true;
                 return false;
@@ -2858,12 +3076,32 @@ app.post('/api/admin/search-bets', adminAuthMiddleware, async (req, res) => {
 app.post('/api/admin/delete-game-player', adminAuthMiddleware, async (req, res) => {
     try {
         const { id, phone } = req.body || {};
-        if (mongoose.connection.readyState === 1 && !String(id).startsWith('game_')) {
-            await Game.updateOne({ _id: id }, { $pull: { playersData: { phone } } });
+        const cleanPhone = normalizePhoneNumber(phone) || String(phone || '').trim();
+
+        // Also remove from LIVE game if id is LIVE, live_*, or matches currentGame.gameId
+        if (!id || id === 'LIVE' || String(id).startsWith('live_') || String(id) === String(currentGame.gameId) || String(id) === 'game_' + currentGame.gameId) {
+            for (const [tid, seat] of Array.from(currentGame.selectedCards.entries())) {
+                if (seat && (seat.phone === phone || seat.phone === cleanPhone)) {
+                    currentGame.selectedCards.delete(tid);
+                }
+            }
+            for (const [sockId, p] of Array.from(currentGame.players.entries())) {
+                if (p && (p.phone === phone || p.phone === cleanPhone)) {
+                    p.tickets = [];
+                    currentGame.players.delete(sockId);
+                }
+            }
+            recalcLiveGamePotAndBroadcast();
         }
-        const memG = inMemoryGames.find(g => String(g._id) === String(id) || String(g.gameId) === String(id));
-        if (memG && Array.isArray(memG.playersData)) {
-            memG.playersData = memG.playersData.filter(p => p.phone !== phone);
+
+        if (id && id !== 'LIVE' && !String(id).startsWith('live_')) {
+            if (mongoose.connection.readyState === 1 && !String(id).startsWith('game_')) {
+                await Game.updateOne({ _id: id }, { $pull: { playersData: { phone: { $in: [phone, cleanPhone] } } } }).catch(() => {});
+            }
+            const memG = inMemoryGames.find(g => String(g._id) === String(id) || String(g.gameId) === String(id));
+            if (memG && Array.isArray(memG.playersData)) {
+                memG.playersData = memG.playersData.filter(p => p.phone !== phone && p.phone !== cleanPhone);
+            }
         }
         return res.json({ success: true });
     } catch (err) {
@@ -2871,39 +3109,89 @@ app.post('/api/admin/delete-game-player', adminAuthMiddleware, async (req, res) 
     }
 });
 
-// 13. Admin Live Players List (/api/admin/live-players-list) & Inject Live Bots (/api/admin/inject-live-bots)
+// 13. Admin Live Players List (/api/admin/live-players-list), Clear Live Bots, & Inject Live Bots
 app.post('/api/admin/live-players-list', adminAuthMiddleware, async (req, res) => {
     try {
-        const byPhone = new Map();
-        for (const [tid, seat] of currentGame.selectedCards.entries()) {
-            if (!seat) continue;
-            const pPhone = seat.phone || '0900000000';
-            if (!byPhone.has(pPhone)) {
-                byPhone.set(pPhone, {
-                    name: seat.name || 'Player',
-                    phone: pPhone,
-                    isBot: !!seat.isBot,
-                    ticketsCount: 0
-                });
-            }
-            byPhone.get(pPhone).ticketsCount++;
-        }
-        return res.json({ success: true, players: Array.from(byPhone.values()) });
+        return res.json({ success: true, players: buildLiveGamePlayersArray() });
     } catch (err) {
         return res.status(500).json({ success: false, players: [] });
     }
 });
 
+app.post('/api/admin/clear-live-bots', adminAuthMiddleware, async (req, res) => {
+    try {
+        const { disableBotSystem = true } = req.body || {};
+        let removedTickets = 0;
+        for (const [tid, seat] of Array.from(currentGame.selectedCards.entries())) {
+            if (seat && seat.isBot) {
+                currentGame.selectedCards.delete(tid);
+                removedTickets++;
+            }
+        }
+        if (disableBotSystem) {
+            if (!global.__inMemorySettings) global.__inMemorySettings = {};
+            global.__inMemorySettings.isBotSystemActive = false;
+            global.__inMemorySettings.botDist1 = 0;
+            global.__inMemorySettings.botDist2 = 0;
+            global.__inMemorySettings.botDist3 = 0;
+            global.__inMemorySettings.botDist4 = 0;
+            if (botRoutesFn && botRoutesFn.inMemoryBotSettings) {
+                botRoutesFn.inMemoryBotSettings.isBotSystemActive = false;
+                botRoutesFn.inMemoryBotSettings.botDist1 = 0;
+                botRoutesFn.inMemoryBotSettings.botDist2 = 0;
+                botRoutesFn.inMemoryBotSettings.botDist3 = 0;
+                botRoutesFn.inMemoryBotSettings.botDist4 = 0;
+            }
+            if (mongoose.connection.readyState === 1) {
+                await SystemSettings.findOneAndUpdate({}, { $set: { isBotSystemActive: false, botDist1: 0, botDist2: 0, botDist3: 0, botDist4: 0 } }, { upsert: true }).catch(() => {});
+                await Settings.findOneAndUpdate({}, { $set: { isBotSystemActive: false, botDist1: 0, botDist2: 0, botDist3: 0, botDist4: 0 } }, { upsert: true }).catch(() => {});
+            }
+        }
+        recalcLiveGamePotAndBroadcast();
+        return res.json({
+            success: true,
+            removedTickets,
+            message: `✅ ሁሉም ቦቶች (${removedTickets} ካርቴላዎች) ከጨዋታው ተወግደዋል!`
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 app.post('/api/admin/inject-live-bots', adminAuthMiddleware, async (req, res) => {
     try {
-        if (currentGame.state !== 'WAITING') {
-            return res.json({ success: false, message: '⚠️ ጨዋታው ተጀምሯል! ቦቶችን ማስገባት የሚቻለው ቆጠራ (WAITING) ላይ እያለ ብቻ ነው።' });
-        }
         const { dist1 = 0, dist2 = 0, dist3 = 0, dist4 = 0 } = req.body || {};
         const d1 = Math.max(0, parseInt(dist1, 10) || 0);
         const d2 = Math.max(0, parseInt(dist2, 10) || 0);
         const d3 = Math.max(0, parseInt(dist3, 10) || 0);
         const d4 = Math.max(0, parseInt(dist4, 10) || 0);
+
+        // Save Admin's exact chosen distribution so future rounds also respect it if bots are enabled
+        if (!global.__inMemorySettings) global.__inMemorySettings = {};
+        global.__inMemorySettings.isBotSystemActive = (d1 + d2 + d3 + d4) > 0;
+        global.__inMemorySettings.botDist1 = d1;
+        global.__inMemorySettings.botDist2 = d2;
+        global.__inMemorySettings.botDist3 = d3;
+        global.__inMemorySettings.botDist4 = d4;
+        if (botRoutesFn && botRoutesFn.inMemoryBotSettings) {
+            botRoutesFn.inMemoryBotSettings.isBotSystemActive = (d1 + d2 + d3 + d4) > 0;
+            botRoutesFn.inMemoryBotSettings.botDist1 = d1;
+            botRoutesFn.inMemoryBotSettings.botDist2 = d2;
+            botRoutesFn.inMemoryBotSettings.botDist3 = d3;
+            botRoutesFn.inMemoryBotSettings.botDist4 = d4;
+        }
+        if (mongoose.connection.readyState === 1) {
+            const setObj = { isBotSystemActive: (d1 + d2 + d3 + d4) > 0, botDist1: d1, botDist2: d2, botDist3: d3, botDist4: d4 };
+            await SystemSettings.findOneAndUpdate({}, { $set: setObj }, { upsert: true }).catch(() => {});
+            await Settings.findOneAndUpdate({}, { $set: setObj }, { upsert: true }).catch(() => {});
+        }
+
+        // First remove existing bot tickets in current round so Admin sets the exact bot count
+        for (const [tid, seat] of Array.from(currentGame.selectedCards.entries())) {
+            if (seat && seat.isBot) {
+                currentGame.selectedCards.delete(tid);
+            }
+        }
 
         const available = [];
         for (let i = 1; i <= 100; i++) {
@@ -2914,7 +3202,7 @@ app.post('/api/admin/inject-live-bots', adminAuthMiddleware, async (req, res) =>
         const botsPool = botRoutesFn && typeof botRoutesFn.getBotsFromStore === 'function'
             ? await botRoutesFn.getBotsFromStore(mongoose)
             : BUILTIN_BOTS;
-        const activeBots = shuffle([...(botsPool || BUILTIN_BOTS)]);
+        const activeBots = shuffle([...(botsPool || BUILTIN_BOTS).filter(b => b.isActive !== false)]);
 
         const plan = [
             ...Array(d1).fill(1),
@@ -2929,7 +3217,7 @@ app.post('/api/admin/inject-live-bots', adminAuthMiddleware, async (req, res) =>
         for (let i = 0; i < plan.length; i++) {
             if (available.length === 0) break;
             const cardsWanted = Math.min(plan[i], available.length);
-            const botIdentity = activeBots[i % activeBots.length] || {
+            const botIdentity = activeBots[i % Math.max(1, activeBots.length)] || {
                 name: 'Bot ' + (i + 1),
                 phone: '0911' + String(100000 + i).slice(-6)
             };
@@ -2948,12 +3236,7 @@ app.post('/api/admin/inject-live-bots', adminAuthMiddleware, async (req, res) =>
             injectedBots++;
         }
 
-        const totalTickets = currentGame.selectedCards.size;
-        currentGame.totalJackpot = totalTickets * currentGame.stake;
-        currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
-
-        io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
-        io.emit('game_status', getGameStatusPayload());
+        recalcLiveGamePotAndBroadcast();
 
         return res.json({
             success: true,
@@ -3178,7 +3461,7 @@ app.post('/api/admin/fix-missing-invites', adminAuthMiddleware, async (req, res)
     return res.json({ success: true, message: '✅ ሁሉም የሪፈራል ቦነሶች ተረጋግጠዋል!' });
 });
 app.post('/api/admin/delete-fake-referrals', adminAuthMiddleware, async (req, res) => {
-    return res.json({ success: true, message: '✅ የውሸት ሪፈራሎች ተ 정리ደዋል!' });
+    return res.json({ success: true, message: '✅ የውሸት ሪፈራሎች ተስተካክለዋል!' });
 });
 app.post('/api/admin/promoters-data', adminAuthMiddleware, async (req, res) => {
     return res.json({ success: true, promoters: [] });
@@ -3239,6 +3522,10 @@ app.post('/api/admin/delete-broadcast', adminAuthMiddleware, async (req, res) =>
 app.post('/api/admin/factory-reset', adminAuthMiddleware, async (req, res) => {
     inMemoryGames.length = 0;
     inMemoryTransactions.length = 0;
+    for (const [tid, seat] of Array.from(currentGame.selectedCards.entries())) {
+        if (seat && seat.isBot) currentGame.selectedCards.delete(tid);
+    }
+    recalcLiveGamePotAndBroadcast();
     return res.json({ success: true, message: '✅ Factory reset complete!' });
 });
 app.post('/api/user/change-password', async (req, res) => {
@@ -3270,7 +3557,7 @@ let currentGame = {
     drawnNumbers: [],
     remainingNumbers: Array.from({ length: 75 }, (_, i) => i + 1),
     players: new Map(), // socketId -> { telegramId, phone, name, tickets: [] }
-    selectedCards: new Map(), // cardId -> socketId
+    selectedCards: new Map(), // cardId -> seat
     timer: 40,
     drawInterval: null,
     totalJackpot: 0,
@@ -3298,6 +3585,8 @@ function getGameStatusPayload() {
         totalPrizePool: currentGame.netJackpot || currentGame.totalJackpot || 0,
         jackpotBoost: memSettings.jackpotBoostAmount || 0,
         calledNumbers: currentGame.drawnNumbers || [],
+        takenCards: Array.from(currentGame.selectedCards.keys()),
+        selectedCards: Object.fromEntries(currentGame.selectedCards.entries()),
         playersCount: Math.max(activePhones.size, currentGame.players.size),
         maxTickets: memSettings.maxTicketsPerUser || 4,
         jackpotThreshold: threshold,
@@ -3343,22 +3632,45 @@ const BUILTIN_BOTS = [
     { name: "ዮናስ", phone: "0911234515", cardsCount: 1 }
 ];
 
-async function populateBotTicketsForRound() {
-    let isBotActive = true;
+// Strictly controlled by Admin: never injects 15 bots / 24 cards / 192 ETB automatically!
+async function populateBotTicketsForRound(forceReseed = false) {
+    let s = global.__inMemorySettings || {};
     try {
-        const s = await getActiveSettingsObj();
-        if (s && s.isBotSystemActive === false) {
-            isBotActive = false;
-        }
+        s = await getActiveSettingsObj();
     } catch (_) {}
 
-    if (!isBotActive) return;
+    const isBotActive = !!s.isBotSystemActive;
+    const d1 = Math.max(0, Number(s.botDist1 ?? 0));
+    const d2 = Math.max(0, Number(s.botDist2 ?? 0));
+    const d3 = Math.max(0, Number(s.botDist3 ?? 0));
+    const d4 = Math.max(0, Number(s.botDist4 ?? 0));
+    const totalWantedBots = d1 + d2 + d3 + d4;
 
-    let existingBotTickets = 0;
-    for (const seat of currentGame.selectedCards.values()) {
-        if (seat && seat.isBot) existingBotTickets++;
+    if (!isBotActive || totalWantedBots <= 0) {
+        if (forceReseed) {
+            for (const [tid, seat] of Array.from(currentGame.selectedCards.entries())) {
+                if (seat && seat.isBot) currentGame.selectedCards.delete(tid);
+            }
+            recalcLiveGamePotAndBroadcast();
+        }
+        return;
     }
-    if (existingBotTickets >= 15) return;
+
+    if (forceReseed) {
+        for (const [tid, seat] of Array.from(currentGame.selectedCards.entries())) {
+            if (seat && seat.isBot) currentGame.selectedCards.delete(tid);
+        }
+    } else {
+        let existingBotTickets = 0;
+        for (const seat of currentGame.selectedCards.values()) {
+            if (seat && seat.isBot) existingBotTickets++;
+        }
+        const targetTickets = (d1 * 1) + (d2 * 2) + (d3 * 3) + (d4 * 4);
+        if (existingBotTickets >= targetTickets) return;
+        for (const [tid, seat] of Array.from(currentGame.selectedCards.entries())) {
+            if (seat && seat.isBot) currentGame.selectedCards.delete(tid);
+        }
+    }
 
     const available = [];
     for (let i = 1; i <= 100; i++) {
@@ -3366,17 +3678,26 @@ async function populateBotTicketsForRound() {
             available.push(i);
         }
     }
-    if (available.length < 5) return;
+    if (available.length === 0) return;
 
     const botsList = (botRoutesFn && typeof botRoutesFn.getBotsFromStore === 'function')
         ? await botRoutesFn.getBotsFromStore(mongoose)
         : BUILTIN_BOTS;
-    const activeBots = (botsList || BUILTIN_BOTS).filter(b => b.isActive !== false);
+    const activeBots = shuffle([...(botsList || BUILTIN_BOTS).filter(b => b.isActive !== false)]);
+    if (activeBots.length === 0) return;
+
+    const plan = [
+        ...Array(d1).fill(1),
+        ...Array(d2).fill(2),
+        ...Array(d3).fill(3),
+        ...Array(d4).fill(4)
+    ];
 
     const shuffledAvailable = shuffle(available);
-    for (const bot of activeBots) {
+    for (let i = 0; i < plan.length; i++) {
         if (shuffledAvailable.length === 0) break;
-        const count = Math.min(bot.cardsCount || 1, shuffledAvailable.length);
+        const bot = activeBots[i % activeBots.length];
+        const count = Math.min(plan[i], shuffledAvailable.length);
         for (let c = 0; c < count; c++) {
             const tid = shuffledAvailable.pop();
             currentGame.selectedCards.set(tid, {
@@ -3388,15 +3709,43 @@ async function populateBotTicketsForRound() {
                 gameId: currentGame.gameId
             });
         }
-        if (currentGame.selectedCards.size >= 24) break;
     }
 
-    const totalTickets = currentGame.selectedCards.size;
-    currentGame.totalJackpot = totalTickets * currentGame.stake;
-    currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
+    recalcLiveGamePotAndBroadcast();
+}
 
-    io.emit('update_taken_tickets', Array.from(currentGame.selectedCards.keys()));
-    io.emit('game_status', getGameStatusPayload());
+async function syncLiveBotsOnAdminChange(eventMeta = {}) {
+    if (eventMeta && eventMeta.deletedBotPhone) {
+        for (const [tid, seat] of Array.from(currentGame.selectedCards.entries())) {
+            if (seat && seat.isBot && seat.phone === eventMeta.deletedBotPhone) {
+                currentGame.selectedCards.delete(tid);
+            }
+        }
+        recalcLiveGamePotAndBroadcast();
+        return;
+    }
+    if (eventMeta && eventMeta.editedBot) {
+        const eb = eventMeta.editedBot;
+        if (!eb.isActive) {
+            for (const [tid, seat] of Array.from(currentGame.selectedCards.entries())) {
+                if (seat && seat.isBot && (seat.phone === eb.oldPhone || seat.phone === eb.phone)) {
+                    currentGame.selectedCards.delete(tid);
+                }
+            }
+        } else {
+            for (const seat of currentGame.selectedCards.values()) {
+                if (seat && seat.isBot && (seat.phone === eb.oldPhone || seat.phone === eb.phone)) {
+                    seat.phone = eb.phone;
+                    seat.name = eb.name;
+                }
+            }
+        }
+        recalcLiveGamePotAndBroadcast();
+        return;
+    }
+    if (currentGame.state === 'WAITING') {
+        await populateBotTicketsForRound(true);
+    }
 }
 
 let countdownInterval = null;
@@ -3416,7 +3765,42 @@ function startCountdown(forceRestart = false) {
     }
 
     currentGame.state = 'WAITING';
-    currentGame.timer = 40;
+    currentGame.timer = (global.__inMemorySettings && Number(global.__inMemorySettings.gameTimer) > 0)
+        ? Number(global.__inMemorySettings.gameTimer)
+        : 40;
+
+    // Synchronously apply in-memory Admin bot configuration if active so jackpot reflects Admin choice immediately
+    const memS = global.__inMemorySettings || {};
+    if (memS.isBotSystemActive) {
+        const d1 = Math.max(0, Number(memS.botDist1 ?? 0));
+        const d2 = Math.max(0, Number(memS.botDist2 ?? 0));
+        const d3 = Math.max(0, Number(memS.botDist3 ?? 0));
+        const d4 = Math.max(0, Number(memS.botDist4 ?? 0));
+        if (d1 + d2 + d3 + d4 > 0 && currentGame.selectedCards.size === 0) {
+            const avail = shuffle(Array.from({ length: 100 }, (_, i) => i + 1));
+            const plan = [...Array(d1).fill(1), ...Array(d2).fill(2), ...Array(d3).fill(3), ...Array(d4).fill(4)];
+            const activeBots = (botRoutesFn && typeof botRoutesFn.inMemoryBots === 'object' ? botRoutesFn.inMemoryBots : BUILTIN_BOTS).filter(b => b.isActive !== false);
+            for (let i = 0; i < plan.length; i++) {
+                const bot = activeBots[i % Math.max(1, activeBots.length)] || BUILTIN_BOTS[i % BUILTIN_BOTS.length];
+                const cnt = Math.min(plan[i], avail.length);
+                for (let c = 0; c < cnt; c++) {
+                    const tid = avail.pop();
+                    currentGame.selectedCards.set(tid, {
+                        pending: false,
+                        socketId: null,
+                        phone: bot.phone,
+                        name: bot.name,
+                        isBot: true,
+                        gameId: currentGame.gameId
+                    });
+                }
+            }
+            const totalTickets = currentGame.selectedCards.size;
+            currentGame.totalJackpot = totalTickets * (currentGame.stake || 10);
+            currentGame.netJackpot = getNetJackpot(currentGame.totalJackpot, 20);
+        }
+    }
+
     io.emit('game_status', getGameStatusPayload());
     io.emit('gameState', { state: currentGame.state, timer: currentGame.timer, gameId: currentGame.gameId });
     io.emit('countdown', currentGame.timer);
@@ -3430,12 +3814,16 @@ function startCountdown(forceRestart = false) {
             return;
         }
 
+        if (global.__inMemorySettings && global.__inMemorySettings.isGamePaused) {
+            return;
+        }
+
         currentGame.timer = Math.max(0, (currentGame.timer || 0) - 1);
         io.emit('game_status', getGameStatusPayload());
         io.emit('countdown', currentGame.timer);
 
         if (currentGame.timer === 35 || currentGame.timer === 20) {
-            populateBotTicketsForRound().catch(() => {});
+            populateBotTicketsForRound(false).catch(() => {});
         }
 
         if (currentGame.timer <= 0) {
@@ -3460,6 +3848,12 @@ async function startGamePlay() {
     if (countdownInterval) {
         clearInterval(countdownInterval);
         countdownInterval = null;
+    }
+
+    // If no tickets at all were bought or injected, restart countdown cleanly instead of playing an empty round
+    if (currentGame.selectedCards.size === 0) {
+        startCountdown(true);
+        return;
     }
 
     currentGame.state = 'PLAYING';
@@ -3619,8 +4013,13 @@ async function startGamePlay() {
 
         // Authoritative winner detection after 16 calls (calls 17, 18 ... up to 75)
         if (callsCount >= 17 && currentGame.state === 'PLAYING') {
+            const winForce = (global.__inMemorySettings && global.__inMemorySettings.botWinnerForce) || 'mix';
             const foundWinners = [];
             for (const [tid, seat] of currentGame.selectedCards.entries()) {
+                if (!seat) continue;
+                if (winForce === 'real' && seat.isBot) continue;
+                if (winForce === 'bots' && !seat.isBot) continue;
+
                 const grid = generateFixedCard(tid);
                 const winCheck = checkWinningPatterns(grid, currentGame.drawnNumbers);
                 if (winCheck && winCheck.isWin) {
