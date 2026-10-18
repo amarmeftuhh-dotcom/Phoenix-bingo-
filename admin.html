@@ -2846,7 +2846,11 @@ async function submitManualDeposit() {
             • አጠቃላይ ካርቴላ: <b>${totalTix}</b><br>
             • አጠቃላይ የገንዘብ መጠን: <b style="color:var(--cyan); font-size:14px;">${totalBet.toLocaleString()} ETB</b><br>
             • የኩባንያ ክፍያ: <b style="color:var(--orange); font-size:14px;">${platformFee.toLocaleString()} ETB</b><br>
-            • ለጌሙ የሚጨምረው ጃክፖት: <b style="color:var(--faded-green); font-size:14px;">+${jackpotGen.toLocaleString()} ETB</b>
+            • ለጌሙ የሚጨምረው ጃክፖት (Auto): <b style="color:var(--faded-green); font-size:14px;">+${jackpotGen.toLocaleString()} ETB</b>
+            <div style="margin-top:8px; border-top:1px solid var(--border); padding-top:6px;">
+                <label style="font-size:11px; color:var(--gold); font-weight:bold;">🎯 Custom Jackpot Override (የጃክፖት መጠን እራስዎ ያስተካክሉ):</label>
+                <input type="number" id="custom-jackpot-override" value="${jackpotGen}" style="width:100%; margin-top:4px; background:black; color:var(--gold); border:1px solid var(--gold); padding:6px; border-radius:4px; font-weight:bold; font-size:14px;">
+            </div>
         `;
         previewBox.style.display = 'block';
     }
@@ -2873,14 +2877,17 @@ async function submitManualDeposit() {
         
         if(total <= 0) return alert("እባክዎ ትክክለኛ የቦት ብዛት ያስገቡ (ከ 0 በላይ) ወይም ቦቶችን ለማጽዳት Clear የሚለውን ይጫኑ!");
 
-        let confirmMsg = `⚠️ እርግጠኛ ነዎት ${total} ቦቶችን አሁን ወዳለው ጌም ማስገባት ይፈልጋሉ?`;
+        let customJackpot = parseFloat(document.getElementById('custom-jackpot-override')?.value);
+        if (isNaN(customJackpot)) customJackpot = undefined;
+
+        let confirmMsg = `⚠️ እርግጠኛ ነዎት ${total} ቦቶች አሁን ወዳለው ጌም ማስገባት ይፈልጋሉ?`;
         if(!confirm(confirmMsg)) return;
 
         try {
             let res = await fetch('/api/admin/inject-live-bots', { 
                 method: 'POST', 
                 headers: {'Content-Type':'application/json'}, 
-                body: JSON.stringify({adminPass: pass, amount: total, dist1: d1, dist2: d2, dist3: d3, dist4: d4}) 
+                body: JSON.stringify({adminPass: pass, amount: total, dist1: d1, dist2: d2, dist3: d3, dist4: d4, customJackpot}) 
             });
             let data = await res.json();
             

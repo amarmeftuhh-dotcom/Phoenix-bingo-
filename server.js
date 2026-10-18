@@ -3409,7 +3409,7 @@ app.post('/api/admin/clear-live-bots', adminAuthMiddleware, async (req, res) => 
 
 app.post('/api/admin/inject-live-bots', adminAuthMiddleware, async (req, res) => {
     try {
-        const { dist1 = 0, dist2 = 0, dist3 = 0, dist4 = 0 } = req.body || {};
+        const { dist1 = 0, dist2 = 0, dist3 = 0, dist4 = 0, customJackpot } = req.body || {};
         const d1 = Math.max(0, parseInt(dist1, 10) || 0);
         const d2 = Math.max(0, parseInt(dist2, 10) || 0);
         const d3 = Math.max(0, parseInt(dist3, 10) || 0);
@@ -3440,9 +3440,15 @@ app.post('/api/admin/inject-live-bots', adminAuthMiddleware, async (req, res) =>
         const targetTicketsCount = (d1 * 1) + (d2 * 2) + (d3 * 3) + (d4 * 4);
         populateBotTicketsForRound(true, { humanGradual: currentGame.state === 'WAITING' && currentGame.timer > 6 });
 
+        if (customJackpot !== undefined && !isNaN(Number(customJackpot))) {
+            currentGame.netJackpot = Number(customJackpot);
+            currentGame.totalJackpot = Math.max(currentGame.totalJackpot, currentGame.netJackpot);
+            recalcLiveGamePotAndBroadcast();
+        }
+
         return res.json({
             success: true,
-            message: `✅ ${targetBotsCount} ቦቶች (${targetTicketsCount} ካርቴላዎች) በሰው ባህሪ (Human Behaviour) ወደ ጌም እየገቡ ነው!`
+            message: `✅ ${targetBotsCount} ቦቶች (${targetTicketsCount} ካርቴላዎች) በሰው ባህሪ (Human Behaviour) ገብተዋል! ጃክፖት: ${currentGame.netJackpot} ETB`
         });
     } catch (err) {
         return res.status(500).json({ success: false, message: err.message });
