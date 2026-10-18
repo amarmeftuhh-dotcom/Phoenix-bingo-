@@ -172,15 +172,15 @@ if (isMongoUriConfigured) {
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-secret, x-webhook-secret');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-secret, x-webhook-secret, x-admin-pass');
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
     next();
 });
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static(path.join(__dirname)));
 
 
@@ -1016,29 +1016,36 @@ process.on('SIGTERM', () => {
 // ══════════════════════════════════════════════════
 // BOT ROUTES & REST APIS (ADMIN AUTHENTICATED)
 // ══════════════════════════════════════════════════
+let runtimeAdminPass = String(ADMIN_DEFAULT_PASS || '').trim();
+function isValidAdminPass(candidate) {
+    if (!candidate) return false;
+    const cleanCandidate = String(candidate).trim();
+    const cleanRuntime = String(runtimeAdminPass || ADMIN_DEFAULT_PASS || '').trim();
+    if (!cleanRuntime) return false;
+    try {
+        const bufA = Buffer.from(cleanCandidate);
+        const bufB = Buffer.from(cleanRuntime);
+        if (bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB)) {
+            return true;
+        }
+    } catch (_) {}
+    return cleanCandidate === cleanRuntime || (ADMIN_DEFAULT_PASS && cleanCandidate === String(ADMIN_DEFAULT_PASS).trim());
+}
+
 const adminAuthMiddleware = (req, res, next) => {
     const adminPass = req.headers['x-admin-pass'] || 
                       (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null) || 
+                      (req.query && req.query.adminPass) ||
                       (req.body && (req.body.adminPass || req.body.password));
-    if (!ADMIN_DEFAULT_PASS || !adminPass) {
-        return res.status(401).json({ success: false, error: 'Unauthorized: Admin credentials required' });
+    if (!isValidAdminPass(adminPass)) {
+        return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin credentials' });
     }
-    try {
-        const bufA = Buffer.from(String(adminPass));
-        const bufB = Buffer.from(String(ADMIN_DEFAULT_PASS));
-        if (bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB)) {
-            return next();
-        }
-    } catch (_) {}
-    if (adminPass === ADMIN_DEFAULT_PASS) {
-        return next();
-    }
-    return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin credentials' });
+    return next();
 };
 
 const botRoutesFn = typeof botRoutes === 'function' ? botRoutes(Settings, async () => {}, adminAuthMiddleware) : botRoutes;
-app.use('/api/bot', adminAuthMiddleware, botRoutesFn);
-app.use('/api/admin', adminAuthMiddleware, botRoutesFn);
+app.use('/api/bot', botRoutesFn);
+app.use('/api/admin', botRoutesFn);
 
 // Optional Telegram Webhook endpoint (enables webhook updates alongside or instead of polling)
 app.post('/api/telegram/webhook', (req, res) => {
@@ -1080,7 +1087,7 @@ app.get(['/status', '/api/status', '/health', '/api/health'], (req, res) => {
     `);
 });
 
-// Direct ZIP download route with attachment header
+// Direct ZIP and individual file download routes
 app.get('/download-zip', (req, res) => {
     const zipPath = path.join(__dirname, 'phoenix-bingo-github-ready.zip');
     res.download(zipPath, 'phoenix-bingo-github-ready.zip', (err) => {
@@ -1088,6 +1095,35 @@ app.get('/download-zip', (req, res) => {
             res.status(404).send('ZIP file not found');
         }
     });
+});
+
+app.get('/download-file/:name', (req, res) => {
+    const allowed = ['server.js', 'admin.html', 'index.html', 'bot.routes.js', 'bot.model.js', 'package.json'];
+    const name = req.params.name;
+    if (!allowed.includes(name)) return res.status(404).send('File not allowed');
+    res.download(path.join(__dirname, name), name);
+});
+
+app.get('/download', (req, res) => {
+    res.status(200).send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Download Phoenix Bingo Files</title>
+<style>body{background:#050810;color:#fff;font-family:sans-serif;padding:24px;max-width:560px;margin:0 auto}
+.box{background:#161b22;border:1px solid #30363d;border-radius:14px;padding:20px;margin-bottom:16px}
+a.btn{display:block;background:#fbbf24;color:#000;font-weight:900;text-align:center;padding:14px;border-radius:10px;text-decoration:none;margin:10px 0}
+a.sub{background:#3b82f6;color:#fff}</style></head>
+<body>
+<div class="box">
+<h2 style="color:#fbbf24;margin-top:0">📥 Phoenix Bingo Updated Files</h2>
+<p>1. Full GitHub Ready ZIP:</p>
+<a class="btn" href="/download-zip" download="phoenix-bingo-github-ready.zip">📦 Download phoenix-bingo-github-ready.zip</a>
+<hr style="border-color:#30363d;margin:18px 0">
+<p>2. Or download individual updated files directly for GitHub Upload:</p>
+<a class="btn sub" href="/download-file/admin.html" download="admin.html">📄 Download admin.html</a>
+<a class="btn sub" href="/download-file/server.js" download="server.js">📄 Download server.js</a>
+<a class="btn sub" href="/download-file/bot.routes.js" download="bot.routes.js">📄 Download bot.routes.js</a>
+<a class="btn sub" href="/download-file/index.html" download="index.html">📄 Download index.html</a>
+</div></body></html>`);
 });
 
 // App routing
@@ -1477,7 +1513,7 @@ app.get('/api/getUser/:phone', async (req, res) => {
 
         // 1. Check Admin Credentials
         const adminPass = req.headers['x-admin-pass'] || req.query.adminPass;
-        if (ADMIN_DEFAULT_PASS && adminPass && adminPass === ADMIN_DEFAULT_PASS) {
+        if (isValidAdminPass(adminPass)) {
             isAuthorized = true;
         }
 
@@ -1769,7 +1805,7 @@ app.get('/api/leaderboard', (req, res) => {
 app.post('/api/admin/history', async (req, res) => {
     try {
         const { adminPass, page = 1, limit = 20, search = '' } = req.body || {};
-        if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
+        if (!isValidAdminPass(adminPass)) {
             return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin credentials' });
         }
 
@@ -1851,6 +1887,21 @@ app.post('/api/admin/history', async (req, res) => {
                 }
             }
 
+            const normPlayers = (Array.isArray(doc.playersData) ? doc.playersData : []).map(p => {
+                const rawP = typeof p.toObject === 'function' ? p.toObject() : p;
+                const tIds = Array.isArray(rawP.ticketIds) ? rawP.ticketIds : [];
+                const tData = (Array.isArray(rawP.ticketsData) && rawP.ticketsData.length > 0)
+                    ? rawP.ticketsData
+                    : tIds.map(tid => ({ id: tid, grid: generateFixedCard(tid) }));
+                return {
+                    ...rawP,
+                    tickets: rawP.tickets || rawP.ticketCount || tData.length || 1,
+                    ticketCount: rawP.ticketCount || rawP.tickets || tData.length || 1,
+                    ticketIds: tIds,
+                    ticketsData: tData
+                };
+            });
+
             return {
                 _id: String(doc._id || doc.gameId),
                 gameId: doc.gameId,
@@ -1861,10 +1912,11 @@ app.post('/api/admin/history', async (req, res) => {
                 prize: doc.netJackpot || 0,
                 adminProfit: doc.houseCut || Math.max(0, (doc.totalJackpot || 0) - (doc.netJackpot || 0)),
                 stake: doc.stake || 10,
+                ticketPrice: doc.stake || doc.ticketPrice || 10,
                 totalJackpot: doc.totalJackpot || 0,
                 netJackpot: doc.netJackpot || 0,
                 houseCut: doc.houseCut || Math.max(0, (doc.totalJackpot || 0) - (doc.netJackpot || 0)),
-                playersData: doc.playersData || [],
+                playersData: normPlayers,
                 winners: doc.winners || [],
                 winnerData: doc.winnerData || [],
                 calledNumbers: doc.numbers || [],
@@ -1884,7 +1936,7 @@ app.post('/api/admin/history', async (req, res) => {
 app.post('/api/admin/delete-history', async (req, res) => {
     try {
         const { adminPass, ids } = req.body || {};
-        if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
+        if (!isValidAdminPass(adminPass)) {
             return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin credentials' });
         }
         if (Array.isArray(ids) && ids.length > 0) {
@@ -1909,7 +1961,7 @@ app.post('/api/admin/delete-history', async (req, res) => {
 app.post('/api/admin/delete-old-history', async (req, res) => {
     try {
         const { adminPass } = req.body || {};
-        if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
+        if (!isValidAdminPass(adminPass)) {
             return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin credentials' });
         }
         const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
@@ -1932,7 +1984,7 @@ app.post('/api/admin/delete-old-history', async (req, res) => {
 app.post('/api/admin/jackpot-threshold', async (req, res) => {
     try {
         const { adminPass, threshold } = req.body || {};
-        if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
+        if (!isValidAdminPass(adminPass)) {
             return res.status(401).json({ success: false, error: 'Unauthorized: Invalid admin credentials' });
         }
         const validated = validateJackpotThreshold(threshold);
@@ -2029,7 +2081,7 @@ async function getActiveSettingsObj() {
 app.post('/api/admin/live-stats', async (req, res) => {
     try {
         const { adminPass } = req.body || {};
-        if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
+        if (!isValidAdminPass(adminPass)) {
             return res.status(401).json({ success: false, error: 'Unauthorized' });
         }
         const currentCalls = (currentGame.drawnNumbers || []).length;
@@ -2142,9 +2194,12 @@ app.post('/api/admin/live-stats', async (req, res) => {
 app.post('/api/admin/update-settings', async (req, res) => {
     try {
         const body = req.body || {};
-        const { adminPass, jackpotThreshold, ticketPrice, gameTimer, pauseGame } = body;
-        if (!ADMIN_DEFAULT_PASS || adminPass !== ADMIN_DEFAULT_PASS) {
+        const { adminPass, jackpotThreshold, ticketPrice, gameTimer, pauseGame, newPass } = body;
+        if (!isValidAdminPass(adminPass)) {
             return res.status(401).json({ success: false, error: 'Unauthorized' });
+        }
+        if (newPass && String(newPass).trim()) {
+            runtimeAdminPass = String(newPass).trim();
         }
 
         if (!global.__inMemorySettings) global.__inMemorySettings = {};
@@ -2283,7 +2338,48 @@ app.post('/api/admin/transactions', adminAuthMiddleware, async (req, res) => {
 
         let allTxs = [];
         if (mongoose.connection.readyState === 1) {
-            allTxs = await Transaction.find().sort({ date: -1 }).limit(1000);
+            const [txDocs, depDocs, witDocs] = await Promise.all([
+                Transaction.find().sort({ date: -1 }).limit(1000).catch(() => []),
+                Deposit.find().sort({ createdAt: -1 }).limit(300).catch(() => []),
+                Withdrawal.find().sort({ createdAt: -1 }).limit(300).catch(() => [])
+            ]);
+            const seenIds = new Set();
+            for (const d of txDocs) {
+                seenIds.add(String(d._id));
+                allTxs.push(d);
+            }
+            for (const dep of depDocs) {
+                if (!seenIds.has(String(dep._id))) {
+                    allTxs.push({
+                        _id: dep._id,
+                        phone: dep.phone || dep.userId,
+                        userId: dep.userId,
+                        type: 'deposit',
+                        method: dep.method || 'Telebirr',
+                        amount: dep.amount,
+                        txRef: dep.trx || dep.reference || 'N/A',
+                        status: dep.status || 'PENDING',
+                        smsText: dep.trx ? `TxRef: ${dep.trx}` : '',
+                        date: dep.createdAt || new Date()
+                    });
+                }
+            }
+            for (const wit of witDocs) {
+                if (!seenIds.has(String(wit._id))) {
+                    allTxs.push({
+                        _id: wit._id,
+                        phone: wit.userId,
+                        userId: wit.userId,
+                        type: 'withdraw',
+                        method: wit.method || 'Telebirr',
+                        amount: wit.amount,
+                        txRef: 'WIT-' + String(wit._id).slice(-6),
+                        status: wit.status || 'PENDING',
+                        smsText: wit.account ? `Transfer to: ${wit.account}` : '',
+                        date: wit.createdAt || new Date()
+                    });
+                }
+            }
         } else {
             allTxs = [...inMemoryTransactions];
         }
@@ -2311,9 +2407,11 @@ app.post('/api/admin/transactions', adminAuthMiddleware, async (req, res) => {
                 txRef: raw.txRef || raw.reference || 'N/A',
                 status: normStatus,
                 smsText: raw.smsText || raw.note || '',
-                date: raw.date || new Date()
+                date: raw.date || raw.createdAt || new Date()
             };
         });
+
+        normalized.sort((a, b) => new Date(b.date) - new Date(a.date));
 
         if (isPending) {
             const pendings = normalized.filter(t => t.status === 'Pending' && (t.type === 'deposit' || t.type === 'withdraw'));
@@ -2351,11 +2449,15 @@ app.post('/api/admin/action-tx', adminAuthMiddleware, async (req, res) => {
         if (!txId || !action) return res.status(400).json({ success: false, message: 'Missing txId or action' });
 
         let txDoc = null;
+        let depDoc = null;
+        let witDoc = null;
         if (mongoose.connection.readyState === 1 && !String(txId).startsWith('tx_')) {
-            txDoc = await Transaction.findById(txId);
+            txDoc = await Transaction.findById(txId).catch(() => null);
+            if (!txDoc) depDoc = await Deposit.findById(txId).catch(() => null);
+            if (!txDoc && !depDoc) witDoc = await Withdrawal.findById(txId).catch(() => null);
         }
         const memTx = inMemoryTransactions.find(t => String(t._id) === String(txId));
-        const target = txDoc || memTx;
+        const target = txDoc || depDoc || witDoc || memTx;
 
         if (!target) {
             return res.status(404).json({ success: false, message: 'Transaction not found' });
@@ -2370,19 +2472,34 @@ app.post('/api/admin/action-tx', adminAuthMiddleware, async (req, res) => {
         const newStatus = isApprove ? 'Approved' : 'Rejected';
         const phone = normalizePhoneNumber(target.phone || target.userId) || (target.phone || target.userId);
         const amt = Number(target.amount || 0);
-        const txType = String(target.type || '').toLowerCase();
+        const txType = depDoc ? 'deposit' : (witDoc ? 'withdraw' : String(target.type || '').toLowerCase());
 
-        target.status = newStatus;
+        target.status = (depDoc || witDoc) ? newStatus.toUpperCase() : newStatus;
         if (txDoc && typeof txDoc.save === 'function') await txDoc.save();
+        if (depDoc && typeof depDoc.save === 'function') await depDoc.save();
+        if (witDoc && typeof witDoc.save === 'function') await witDoc.save();
         if (memTx) memTx.status = newStatus;
 
         const user = await findUserByTgOrPhone(null, phone);
         if (user) {
             if (txType.includes('dep') && isApprove) {
-                // Credit deposit to playBalance (or mainBalance)
-                user.playBalance = Number(user.playBalance ?? user.bonusBalance ?? 0) + amt;
+                const sysSettings = await getActiveSettingsObj();
+                let bonusAmt = 0;
+                if (sysSettings.depBonusTier3Min > 0 && amt >= sysSettings.depBonusTier3Min && sysSettings.depBonusTier3Percent > 0) {
+                    bonusAmt = Math.round((amt * (sysSettings.depBonusTier3Percent / 100)) * 100) / 100;
+                } else if (sysSettings.depBonusTier2Min > 0 && amt >= sysSettings.depBonusTier2Min && sysSettings.depBonusTier2Percent > 0) {
+                    bonusAmt = Math.round((amt * (sysSettings.depBonusTier2Percent / 100)) * 100) / 100;
+                } else if (sysSettings.depBonusMinAmount > 0 && amt >= sysSettings.depBonusMinAmount && sysSettings.depBonusPercent > 0) {
+                    bonusAmt = Math.round((amt * (sysSettings.depBonusPercent / 100)) * 100) / 100;
+                }
+                if (bonusAmt > 0 && txDoc) {
+                    txDoc.bonusGiven = bonusAmt;
+                    await txDoc.save().catch(() => {});
+                }
+                user.playBalance = Number(user.playBalance ?? user.bonusBalance ?? 0) + amt + bonusAmt;
                 user.bonusBalance = user.playBalance;
                 user.totalDeposited = Number(user.totalDeposited || 0) + amt;
+                if (bonusAmt > 0) user.totalBonus = Number(user.totalBonus || 0) + bonusAmt;
                 if (typeof user.save === 'function') await user.save().catch(() => {});
                 inMemoryUsers.set(phone, user);
 
@@ -2393,7 +2510,6 @@ app.post('/api/admin/action-tx', adminAuthMiddleware, async (req, res) => {
                     totalBalance: user.playBalance + Number(user.mainBalance ?? user.balance ?? 0)
                 });
             } else if (txType.includes('wit') && !isApprove) {
-                // Refund rejected withdrawal back to mainBalance
                 user.mainBalance = Number(user.mainBalance ?? user.balance ?? 0) + amt;
                 user.balance = user.mainBalance;
                 if (typeof user.save === 'function') await user.save().catch(() => {});
@@ -3085,19 +3201,33 @@ app.post(['/api/admin/leaderboard-edit', '/api/admin/leaderboard-reset', '/api/a
 app.post('/api/admin/sms-comparison', adminAuthMiddleware, async (req, res) => {
     try {
         let smsList = [];
+        let depTxs = [...inMemoryTransactions];
         if (mongoose.connection.readyState === 1) {
-            smsList = await BankSMS.find().sort({ receivedAt: -1 }).limit(30);
+            smsList = await BankSMS.find().sort({ receivedAt: -1 }).limit(30).catch(() => []);
+            depTxs = await Transaction.find({ type: { $regex: /dep/i } }).sort({ date: -1 }).limit(200).catch(() => []);
         }
-        const data = smsList.map(s => ({
-            smsDate: s.receivedAt || new Date(),
-            iphoneSms: s.body || '',
-            txRef: s.trx || 'N/A',
-            extraction: s.amount || 0,
-            systemData: null
-        }));
-        return res.json({ success: true, data });
+        const data = smsList.map(s => {
+            const matchedTx = depTxs.find(t =>
+                (s.trx && (t.txRef === s.trx || (t.smsText && t.smsText.includes(s.trx)))) ||
+                (s.amount > 0 && Number(t.amount) === Number(s.amount))
+            );
+            return {
+                smsDate: s.receivedAt || new Date(),
+                iphoneSms: s.body || '',
+                txRef: s.trx || 'N/A',
+                extraction: s.amount || 0,
+                systemData: matchedTx ? {
+                    txId: String(matchedTx._id),
+                    phone: matchedTx.phone || matchedTx.userId || 'Unknown',
+                    amount: Number(matchedTx.amount || 0),
+                    status: matchedTx.status || 'Pending',
+                    userSms: matchedTx.smsText || ''
+                } : null
+            };
+        });
+        return res.json({ success: true, data, total: data.length });
     } catch (e) {
-        return res.json({ success: true, data: [] });
+        return res.json({ success: true, data: [], total: 0 });
     }
 });
 app.post('/api/admin/broadcast-telegram', adminAuthMiddleware, async (req, res) => {

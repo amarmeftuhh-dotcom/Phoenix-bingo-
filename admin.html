@@ -1513,10 +1513,9 @@
     }
 </script>
 <script>
-    const PHOENIX_RENDER_URL = 'https://phoenix-bingo-5w5t.onrender.com';
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isRenderHost = window.location.origin.includes('phoenix-bingo-5w5t.onrender.com');
-    const BACKEND_URL = isLocalhost ? '' : (isRenderHost ? window.location.origin : PHOENIX_RENDER_URL);
+    // Always use relative path on any full-stack HTTP(S) server (Render, Cloud Run, localhost, custom domain)
+    const isSeparateStaticFrontend = window.location.protocol === 'file:' || window.location.hostname.endsWith('github.io');
+    const BACKEND_URL = isSeparateStaticFrontend ? window.location.origin : '';
 
     if (BACKEND_URL && !window._fetchPatched) {
         window._fetchPatched = true;
@@ -1781,21 +1780,64 @@ async function submitManualDeposit() {
     }
 }
     function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('mobile-overlay').classList.toggle('active'); }
-    function login() { 
-        let inputPass = document.getElementById('adminPass').value; 
-        if(!inputPass) return; 
-        pass = inputPass;
-        localStorage.setItem('bingo_admin_pass', pass);
-        fullRefresh(); 
+    async function login() { 
+        let inputPass = (document.getElementById('adminPass').value || '').trim(); 
+        if(!inputPass) return alert("እባክዎ የአድሚን ፓስወርድ ያስገቡ! (Please enter Admin Password)"); 
+        try {
+            let res = await fetch('/api/admin/live-stats', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ adminPass: inputPass })
+            });
+            if (res.status === 401) {
+                localStorage.removeItem('bingo_admin_pass');
+                return alert("❌ የአድሚን ፓስወርድ ተሳስቷል! (Wrong Admin Password)");
+            }
+            pass = inputPass;
+            localStorage.setItem('bingo_admin_pass', pass);
+            document.getElementById('login-sec').style.display = 'none'; 
+            document.getElementById('dash-sec').style.display = 'flex';
+            fullRefresh();
+        } catch (err) {
+            pass = inputPass;
+            localStorage.setItem('bingo_admin_pass', pass);
+            fullRefresh();
+        }
     }
     
     function switchTab(tabId, btn) { 
         document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active')); 
-        document.getElementById(tabId).classList.add('active'); 
+        const targetEl = document.getElementById(tabId);
+        if (targetEl) targetEl.classList.add('active'); 
         document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); 
-        btn.classList.add('active'); 
-        document.getElementById('page-title').innerText = btn.innerText.replace('☰', '').replace(/[\d]+$/, '').replace('📥', '').replace('📤', '').trim(); 
+        if (btn) {
+            btn.classList.add('active'); 
+            document.getElementById('page-title').innerText = btn.innerText.replace('☰', '').replace(/[\d]+$/, '').replace('📥', '').replace('📤', '').trim(); 
+        }
         if (tabId === 'tab-schedule') ensureBotSlotEditor();
+        if (tabId === 'tab-live') { loadLiveStats(); loadPendingTxs(); }
+        else if (tabId === 'tab-pend-dep' || tabId === 'tab-pend-wit') { loadPendingTxs(); }
+        else if (tabId === 'tab-sms-compare') { loadSmsComparison(p_sms); }
+        else if (tabId === 'tab-users' || tabId === 'tab-banned') { loadUsersPage(p_users); }
+        else if (tabId === 'tab-leaderboard') { loadAdminLeaderboard(); }
+        else if (tabId === 'tab-history') { loadHistoryPage(p_hist); }
+        else if (tabId === 'tab-history-tx') { loadTxPage(p_tx); }
+        else if (tabId === 'tab-players') {
+            loadHistoryPage(1).then(() => {
+                const sel = document.getElementById('game-details-select');
+                if (sel && loadedGames.length > 0) {
+                    sel.value = "0";
+                    renderGamePlayers("0");
+                } else {
+                    renderGamePlayers("");
+                }
+            });
+        }
+        else if (tabId === 'tab-bots-db') { loadBotDB(); loadLiveStats(); }
+        else if (tabId === 'tab-promo-codes') { loadPromoCodes(); }
+        else if (tabId === 'tab-promoters') { loadPromoters(); loadPendingTxs(); }
+        else if (tabId === 'tab-referral') { loadRefPage(p_ref); }
+        else { loadLiveStats(); }
         if(window.innerWidth <= 768) toggleSidebar(); 
     }
     
@@ -2254,23 +2296,31 @@ async function submitManualDeposit() {
             if (document.getElementById('u-monthly')) document.getElementById('u-monthly').innerText = (data.monthlyActive || 0).toLocaleString('en-US');
             window.activeBotPhones = data.activeBotPhones || []; 
 
-            document.getElementById('box-total-reg').innerText = data.totalUsers.toLocaleString('en-US'); 
+            document.getElementById('box-total-reg').innerText = (data.totalUsers || 0).toLocaleString('en-US'); 
+
+            let stateHeader = document.getElementById('header-state');
+            let jackpotHeader = document.getElementById('header-jackpot');
+            if(stateHeader && jackpotHeader) {
+                stateHeader.innerText = data.gameState || 'WAITING';
+                stateHeader.style.color = data.gameState === 'PLAYING' ? '#4ade80' : 'var(--orange)';
+                jackpotHeader.innerText = Number(data.currentJackpot || 0).toLocaleString('en-US', {minimumFractionDigits: 2}) + " ETB";
+            }
             
             if(document.getElementById('tab-live').classList.contains('active')) {
-                document.getElementById('stat-total-users').innerText = data.totalUsers.toLocaleString('en-US'); 
+                document.getElementById('stat-total-users').innerText = (data.totalUsers || 0).toLocaleString('en-US'); 
                 let tProf = data.totalProfit || 0;
                 document.getElementById('stat-total-profit').innerText = Number(tProf).toLocaleString('en-US', {minimumFractionDigits: 2}) + " ETB"; 
                 document.getElementById('split-admin').innerText = Number(tProf * 0.70).toLocaleString('en-US', {minimumFractionDigits: 2}); 
                 document.getElementById('split-partner').innerText = Number(tProf * 0.30).toLocaleString('en-US', {minimumFractionDigits: 2}); 
                 
-                document.getElementById('stat-live-players').innerText = `${data.realPlayersCount} / ${data.botPlayersCount}`; 
+                document.getElementById('stat-live-players').innerText = `${data.realPlayersCount || 0} / ${data.botPlayersCount || 0}`; 
                 document.getElementById('split-real-money').innerText = Number(data.realMoney || 0).toLocaleString('en-US', {minimumFractionDigits: 2});
                 document.getElementById('split-bot-money').innerText = Number(data.botMoney || 0).toLocaleString('en-US', {minimumFractionDigits: 2});
                 
-                document.getElementById('stat-game-state').innerText = data.gameState;
+                document.getElementById('stat-game-state').innerText = data.gameState || 'WAITING';
                 document.getElementById('stat-current-jackpot').innerText = Number(data.currentJackpot || 0).toLocaleString('en-US', {minimumFractionDigits: 2}) + " ETB";
                 
-                document.getElementById('stat-virtual-pool').innerText = Number(data.settings.virtualPrizePool || 0).toLocaleString('en-US', {minimumFractionDigits: 2}) + " ETB";
+                document.getElementById('stat-virtual-pool').innerText = Number((data.settings && data.settings.virtualPrizePool) || 0).toLocaleString('en-US', {minimumFractionDigits: 2}) + " ETB";
 
                 document.getElementById('stat-daily-dep').innerText = Number(data.dailyDeposit || 0).toLocaleString('en-US', {minimumFractionDigits: 2}) + " ETB";
                 document.getElementById('stat-daily-wit').innerText = Number(data.dailyWithdraw || 0).toLocaleString('en-US', {minimumFractionDigits: 2}) + " ETB";
@@ -2503,18 +2553,33 @@ async function submitManualDeposit() {
             }
         } catch(e) { console.log(e); }
     }
-    setInterval(loadLiveStats, 3000); 
+    setInterval(() => {
+        if (pass) {
+            loadLiveStats();
+            loadPendingTxs();
+        }
+    }, 4000); 
 
     function fullRefresh() {
         loadLiveStats();
+        loadPendingTxs();
         let activeTabContent = document.querySelector('.tab-content.active');
         if (!activeTabContent) return;
         
         let activeTabId = activeTabContent.id;
         if (activeTabId === 'tab-pend-dep' || activeTabId === 'tab-pend-wit') { loadPendingTxs(); } 
-        else if (activeTabId === 'tab-users') { loadUsersPage(p_users); } 
+        else if (activeTabId === 'tab-users' || activeTabId === 'tab-banned') { loadUsersPage(p_users); } 
         else if (activeTabId === 'tab-history') { loadHistoryPage(p_hist); } 
         else if (activeTabId === 'tab-history-tx') { loadTxPage(p_tx); } 
+        else if (activeTabId === 'tab-players') {
+            loadHistoryPage(1).then(() => {
+                const sel = document.getElementById('game-details-select');
+                if (sel && loadedGames.length > 0 && sel.value === "") {
+                    sel.value = "0";
+                    renderGamePlayers("0");
+                }
+            });
+        }
         else if (activeTabId === 'tab-promo-codes') { loadPromoCodes(); } 
         else if (activeTabId === 'tab-promoters') { loadPromoters(); } 
         else if (activeTabId === 'tab-referral') { loadRefPage(p_ref); }
@@ -2991,19 +3056,45 @@ async function submitManualDeposit() {
         } catch(e) { alert("❌ ማጥፋት አልተቻለም።"); }
     }
 
-    function renderGamePlayers(index) { 
-        if(!index) { document.getElementById('game-players-body').innerHTML = '<tr><td colspan="6" style="text-align:center; color:gray;">Please select a game from above</td></tr>'; return; } 
-        let game = loadedGames[index]; 
+    async function renderGamePlayers(index) { 
+        if(index === "" || index === null || index === undefined) {
+            try {
+                let res = await fetch('/api/admin/live-players-list', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({adminPass: pass})});
+                let data = await res.json();
+                if (data.success && Array.isArray(data.players) && data.players.length > 0) {
+                    document.getElementById('game-players-body').innerHTML = data.players.map(p => {
+                        let isReal = !p.isBot;
+                        let displayPhone = isReal ? `<a href="#" style="color:var(--cyan); text-decoration:none;" onclick="fetchAndShowUserInfo('${p.phone}'); return false;">${p.phone}</a>` : `<span style="color:gray;">🤖 Bot (${p.phone})</span>`;
+                        return `<tr>
+                            <td style="color:var(--faded-green); font-weight:bold;">LIVE GAME</td>
+                            <td>${p.name || 'Player'}</td>
+                            <td>${displayPhone}</td>
+                            <td>${p.tickets || 1} <span style="font-size:10px; color:gray;">(${p.ticketsData ? p.ticketsData.map(t=>t.id).join(', ') : ''})</span></td>
+                            <td style="color:var(--faded-green); font-weight:bold;">${Number((p.tickets || 1) * ((sysSettings && sysSettings.ticketPrice) || 10)).toLocaleString('en-US', {minimumFractionDigits: 2})} ETB</td>
+                            <td>
+                                <button class="btn-sm btn-blue" onclick='viewPlayerMultipleCards(${JSON.stringify(p.ticketsData || [])}, [])'>View Cards</button>
+                            </td>
+                        </tr>`;
+                    }).join('');
+                    return;
+                }
+            } catch (_) {}
+            document.getElementById('game-players-body').innerHTML = '<tr><td colspan="6" style="text-align:center; color:gray;">Please select a game from above or search by phone/ticket ID</td></tr>';
+            return;
+        } 
+        let game = loadedGames[Number(index)]; 
+        if (!game) return;
         document.getElementById('game-players-body').innerHTML = (game.playersData && game.playersData.length > 0) ? game.playersData.map(p => {
             let isReal = !p.isBot;
             let displayPhone = isReal ? `<a href="#" style="color:var(--cyan); text-decoration:none;" onclick="fetchAndShowUserInfo('${p.phone}'); return false;">${p.phone}</a>` : `<span style="color:gray;">🤖 Bot (${p.phone})</span>`;
+            let tCount = p.tickets || p.ticketCount || (Array.isArray(p.ticketsData) ? p.ticketsData.length : 1);
             return `
             <tr>
                 <td style="color:var(--gold); font-weight:bold;">#${game.gameId}</td>
                 <td>${p.name}</td>
                 <td>${displayPhone}</td>
-                <td>${p.tickets} <span style="font-size:10px; color:gray;">(${p.ticketsData ? p.ticketsData.map(t=>t.id).join(', ') : ''})</span></td>
-                <td style="color:var(--faded-green); font-weight:bold;">${Number(p.tickets * (game.ticketPrice || 10)).toLocaleString('en-US', {minimumFractionDigits: 2})} ETB</td>
+                <td>${tCount} <span style="font-size:10px; color:gray;">(${p.ticketsData ? p.ticketsData.map(t=>t.id).join(', ') : (Array.isArray(p.ticketIds) ? p.ticketIds.join(', ') : '')})</span></td>
+                <td style="color:var(--faded-green); font-weight:bold;">${Number(tCount * (game.ticketPrice || game.stake || 10)).toLocaleString('en-US', {minimumFractionDigits: 2})} ETB</td>
                 <td>
                     <button class="btn-sm btn-blue" onclick='viewPlayerMultipleCards(${JSON.stringify(p.ticketsData || [])}, ${JSON.stringify(game.calledNumbers || [])})'>View Cards</button>
                     <button class="btn-sm btn-red" onclick="deletePlayerFromGame('${game._id}', '${p.phone}')">Delete Bet</button>

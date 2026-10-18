@@ -730,10 +730,9 @@
     }
 </script>
 <script>
-    const PHOENIX_RENDER_URL = 'https://phoenix-bingo-5w5t.onrender.com';
     // Use relative path when served by any full-stack HTTP(S) server (localhost, Cloud Run, custom domain, Render)
     const isSeparateStaticFrontend = window.location.protocol === 'file:' || window.location.hostname.endsWith('github.io');
-    const BACKEND_URL = isSeparateStaticFrontend ? PHOENIX_RENDER_URL : '';
+    const BACKEND_URL = isSeparateStaticFrontend ? window.location.origin : '';
 
     // Route relative /api/ requests to the Phoenix Bingo backend when frontend is hosted separately
     if (BACKEND_URL && !window._fetchPatched) {
