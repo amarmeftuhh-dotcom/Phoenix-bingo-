@@ -988,30 +988,16 @@
             }
         }).catch(() => {});
 
-        let initData = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) || '';
-        if (!initData || initData.trim() === '') {
-            initData = 'user=' + encodeURIComponent(JSON.stringify({id: 999999 + Math.floor(Math.random()*10000), first_name: 'Player', username: 'player'})) + '&auth_date=' + Math.floor(Date.now()/1000) + '&hash=demo';
+        let tgUser = { name: 'Player', phone: '0999999999', mainBalance: 15, playBalance: 0 };
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+            const tg = window.Telegram.WebApp.initDataUnsafe.user;
+            tgUser.name = tg.first_name || tg.username || 'Player';
+            tgUser.phone = '09' + String(tg.id).slice(-8).padStart(8, '0');
         }
 
-        window._tgInitData = initData;
-
-        try {
-            let res = await fetch('/api/telegram-login', { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({ initData: initData }) 
-            });
-            let data = await res.json();
-            if (data.success) {
-                processLoginSuccess(data.user);
-                loadActiveTicketsData(data.user.phone);
-                socket.emit('get_initial_data', data.user.phone);
-            } else {
-                processLoginSuccess({ name: 'Player', phone: '0999999999', mainBalance: 15, playBalance: 0 });
-            }
-        } catch(e) {
-            processLoginSuccess({ name: 'Player', phone: '0999999999', mainBalance: 15, playBalance: 0 });
-        }
+        processLoginSuccess(tgUser);
+        loadActiveTicketsData(tgUser.phone);
+        socket.emit('get_initial_data', tgUser.phone);
     };
 
         let savedPhone = localStorage.getItem('bingo_user_phone'); let savedPass = localStorage.getItem('bingo_user_pass');
