@@ -449,6 +449,33 @@
 
         .summary-box { background: rgba(0,0,0,0.3); border: 1px dashed var(--border); padding: 15px; border-radius: 8px; margin-bottom: 15px; text-align: center; font-size: 18px; font-weight: bold; }
 
+        /* DASHBOARD INNER PILLS & COMMAND CENTER */
+        .dash-pills { display: flex; gap: 6px; flex-wrap: wrap; background: rgba(0,0,0,0.5); padding: 5px; border-radius: 10px; border: 1px solid var(--border); }
+        .dash-pill-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-gray);
+            font-size: 12px;
+            font-weight: 700;
+            padding: 8px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            white-space: nowrap;
+        }
+        .dash-pill-btn:hover {
+            color: white;
+            background: rgba(255,255,255,0.06);
+        }
+        .dash-pill-btn.active {
+            background: var(--faded-green);
+            color: black;
+            box-shadow: 0 2px 10px rgba(74, 222, 128, 0.35);
+        }
+        .dash-pill-pane { animation: fadeIn 0.25s ease-out; }
+
         /* MOBILE BOTTOM NAVIGATION BAR */
         .mobile-bottom-nav {
             display: none;
@@ -686,6 +713,152 @@
                 <div class="stat-card" style="border-bottom: 4px solid var(--purple);">
                     <h3>🎁 Total Unplayed Bonus</h3>
                     <h2 style="color: var(--purple);" id="stat-total-unplayed">0.00 ETB</h2>
+                </div>
+            </div>
+
+            <!-- UNIFIED DASHBOARD ACTION CENTER (በዳሽቦርዱ ላይ ሁሉንም በአንድ ላይ ማስተዳደሪያ) -->
+            <div class="card" style="margin-top: 10px; border-top: 3px solid var(--gold); padding: 18px 20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:12px;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <h3 style="margin:0; font-size:16px; font-weight:800; color:var(--gold); display:flex; align-items:center; gap:8px;">
+                            <span>⚡</span> ዋና የዳሽቦርድ መቆጣጠሪያ ማዕከል (Live Command Center)
+                        </h3>
+                        <span style="font-size:11px; color:var(--text-gray); background:rgba(255,255,255,0.05); padding:3px 8px; border-radius:6px;">All-in-One Operations</span>
+                    </div>
+
+                    <!-- Dashboard Inner Tabs Pill Selector -->
+                    <div class="dash-pills">
+                        <button class="dash-pill-btn active" id="dpill-btn-dep" onclick="switchDashPill('dpill-dep')">
+                            📥 Pending Deposits <span class="badge-alert" id="dash-badge-dep" style="margin-left:4px;">0</span>
+                        </button>
+                        <button class="dash-pill-btn" id="dpill-btn-sms" onclick="switchDashPill('dpill-sms')">
+                            📱 SMS vs ደረሰኝ Compare
+                        </button>
+                        <button class="dash-pill-btn" id="dpill-btn-wit" onclick="switchDashPill('dpill-wit')">
+                            📤 Pending Withdraws <span class="badge-alert" id="dash-badge-wit" style="margin-left:4px;">0</span>
+                        </button>
+                        <button class="dash-pill-btn" id="dpill-btn-bot" onclick="switchDashPill('dpill-bot')">
+                            🤖 Bot & Game Control
+                        </button>
+                        <button class="dash-pill-btn" id="dpill-btn-players" onclick="switchDashPill('dpill-players')">
+                            🎮 Live Players & Bets
+                        </button>
+                    </div>
+                </div>
+
+                <!-- PILL 1: PENDING DEPOSITS -->
+                <div class="dash-pill-pane" id="dpill-dep">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap;">
+                        <div style="font-size:13px; color:var(--text-gray);">
+                            📥 Total Pending Deposits: <b style="color:var(--faded-green); font-size:15px;" id="dash-sum-pend-dep">0.00 ETB</b>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button class="action-btn btn-blue btn-sm" onclick="loadPendingTxs()">🔄 Refresh Deposits</button>
+                            <button class="action-btn btn-red btn-sm" onclick="clearSpamDeposits()">🧹 Clear All</button>
+                        </div>
+                    </div>
+                    <div class="search-container" style="margin-bottom:10px;">
+                        <input type="text" class="search-bar" id="search-dash-dep" onkeyup="simpleSearch('search-dash-dep', 'table-dash-dep')" placeholder="🔍 Search Phone, Bank, or Amount (ስልክ ወይም ብር ይፈልጉ)...">
+                    </div>
+                    <div class="table-responsive">
+                        <table id="table-dash-dep">
+                            <thead><tr><th>Date</th><th>Phone</th><th>Bank</th><th>Amount</th><th>SMS Detail (ማረጋገጫ)</th><th>Action</th></tr></thead>
+                            <tbody id="dash-pend-dep-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- PILL 2: SMS VS RECEIPT COMPARE -->
+                <div class="dash-pill-pane" id="dpill-sms" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap;">
+                        <div>
+                            <div style="font-size:13px; font-weight:700; color:var(--cyan);">📱 የ iPhone SMS እና የደንበኛ ደረሰኝ ማነፃፀሪያ</div>
+                            <div style="font-size:11px; color:var(--text-gray);">በግራ በኩል ከ iPhoneዎ የገባው ትክክለኛው SMS ሲታይ፣ በቀኝ በኩል ደግሞ ደንበኛው ያስገባው ይታያል</div>
+                        </div>
+                        <button class="action-btn btn-blue btn-sm" onclick="loadSmsComparison(1)">🔄 Refresh SMS Data</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="table-dash-sms-compare">
+                            <thead>
+                                <tr>
+                                    <th>Date (ቀን)</th>
+                                    <th style="background:rgba(59,130,246,0.15); border-left:3px solid var(--blue); color:white;">📱 ከ iPhone የመጣው እውነተኛ SMS</th>
+                                    <th style="background:rgba(74,222,128,0.15); border-left:3px solid var(--faded-green); color:white;">🧾 ደንበኛው ያስገባው (App ላይ)</th>
+                                    <th>Status & Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dash-sms-compare-body"></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination" id="pag-dash-sms-compare"></div>
+                </div>
+
+                <!-- PILL 3: PENDING WITHDRAWALS -->
+                <div class="dash-pill-pane" id="dpill-wit" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap;">
+                        <div style="font-size:13px; color:var(--text-gray);">
+                            📤 Total Pending Withdrawals: <b style="color:var(--orange); font-size:15px;" id="dash-sum-pend-wit">0.00 ETB</b>
+                        </div>
+                        <button class="action-btn btn-blue btn-sm" onclick="loadPendingTxs()">🔄 Refresh Withdraws</button>
+                    </div>
+                    <div class="search-container" style="margin-bottom:10px;">
+                        <input type="text" class="search-bar" id="search-dash-wit" onkeyup="simpleSearch('search-dash-wit', 'table-dash-wit')" placeholder="🔍 Search Phone, Bank, or Amount (ስልክ ወይም ብር ይፈልጉ)...">
+                    </div>
+                    <div class="table-responsive">
+                        <table id="table-dash-wit">
+                            <thead><tr><th>Date</th><th>Phone</th><th>Bank Option</th><th>Amount</th><th>Sent To (Account)</th><th>Action</th></tr></thead>
+                            <tbody id="dash-pend-wit-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- PILL 4: BOT & GAME CONTROL -->
+                <div class="dash-pill-pane" id="dpill-bot" style="display:none;">
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:15px; margin-bottom:15px;">
+                        <div style="background:rgba(0,0,0,0.4); padding:16px; border-radius:10px; border:1px solid var(--border);">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                                <div>
+                                    <div style="font-weight:bold; font-size:14px; color:white;">1. Enable Bots (ቦት ማስገባት)</div>
+                                    <div style="font-size:11px; color:var(--text-gray);">ON ሲሆን ቦቶች በተራ እየገቡ ይጫወታሉ</div>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" id="dash-bot-master-toggle" onchange="syncAndSaveBotToggle(this.checked)">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div style="background:rgba(0,0,0,0.4); padding:16px; border-radius:10px; border:1px solid var(--border);">
+                            <div style="font-weight:bold; font-size:14px; color:white; margin-bottom:6px;">2. Winner Control (ማን ያሸንፍ?)</div>
+                            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                <label style="flex:1; padding:8px 10px; background:rgba(239,68,68,0.12); border:1px solid var(--red); border-radius:6px; cursor:pointer; font-size:12px; font-weight:bold; display:flex; align-items:center; gap:5px;">
+                                    <input type="radio" name="dash-winner-force" value="bots" onchange="syncWinnerForce('bots')"> 🤖 Bots
+                                </label>
+                                <label style="flex:1; padding:8px 10px; background:rgba(74,222,128,0.12); border:1px solid var(--faded-green); border-radius:6px; cursor:pointer; font-size:12px; font-weight:bold; display:flex; align-items:center; gap:5px;">
+                                    <input type="radio" name="dash-winner-force" value="humans" onchange="syncWinnerForce('humans')"> 👤 Humans
+                                </label>
+                                <label style="flex:1; padding:8px 10px; background:rgba(251,191,36,0.12); border:1px solid var(--gold); border-radius:6px; cursor:pointer; font-size:12px; font-weight:bold; display:flex; align-items:center; gap:5px;">
+                                    <input type="radio" name="dash-winner-force" value="mix" onchange="syncWinnerForce('mix')"> ⚖️ Mix
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <button class="action-btn btn-blue btn-sm" onclick="switchTab('tab-bots-db')">⚙️ Full Bot Database</button>
+                        <button class="action-btn btn-gold btn-sm" onclick="switchTab('tab-schedule')">📅 Auto Schedule</button>
+                        <button class="action-btn btn-red btn-sm" onclick="clearLiveBotsNow()">🧹 Clear Live Bots</button>
+                    </div>
+                </div>
+
+                <!-- PILL 5: LIVE PLAYERS & BETS -->
+                <div class="dash-pill-pane" id="dpill-players" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap;">
+                        <div style="font-size:13px; font-weight:700; color:var(--purple);">🎮 Live Round Seated Players & Cartelas</div>
+                        <button class="action-btn btn-purple btn-sm" onclick="openLivePlayersModal()">👁️ Open Full Live Modal</button>
+                    </div>
+                    <div id="dash-live-players-preview" style="background:#000; padding:15px; border-radius:8px; border:1px solid var(--border); min-height:80px; font-size:13px;">
+                        Loading live round players...
+                    </div>
                 </div>
             </div>
         </div>
@@ -2979,6 +3152,8 @@ async function submitManualDeposit() {
                 if(document.activeElement !== document.getElementById('bot-master-toggle')) {
                     let masterToggle = document.getElementById('bot-master-toggle');
                     if(masterToggle) masterToggle.checked = data.settings.isBotSystemActive || false;
+                    let dashToggle = document.getElementById('dash-bot-master-toggle');
+                    if(dashToggle) dashToggle.checked = data.settings.isBotSystemActive || false;
                 }
 
                 if(document.activeElement !== document.getElementById('master-auto-toggle')) {
@@ -3411,19 +3586,29 @@ async function submitManualDeposit() {
             let sumWitNormal = wits.reduce((acc, t) => acc + t.amount, 0);
             let sumWitPro = proWits.reduce((acc, t) => acc + t.amount, 0);
             
-            if(document.getElementById('sum-pend-dep')) document.getElementById('sum-pend-dep').innerText = sumDep.toLocaleString('en-US', {minimumFractionDigits: 2});
-            if(document.getElementById('sum-pend-wit')) document.getElementById('sum-pend-wit').innerText = (sumWitNormal + sumWitPro).toLocaleString('en-US', {minimumFractionDigits: 2});
+            let sumDepFormatted = sumDep.toLocaleString('en-US', {minimumFractionDigits: 2});
+            let sumWitFormatted = (sumWitNormal + sumWitPro).toLocaleString('en-US', {minimumFractionDigits: 2});
+
+            if(document.getElementById('sum-pend-dep')) document.getElementById('sum-pend-dep').innerText = sumDepFormatted;
+            if(document.getElementById('dash-sum-pend-dep')) document.getElementById('dash-sum-pend-dep').innerText = sumDepFormatted + ' ETB';
+
+            if(document.getElementById('sum-pend-wit')) document.getElementById('sum-pend-wit').innerText = sumWitFormatted;
+            if(document.getElementById('dash-sum-pend-wit')) document.getElementById('dash-sum-pend-wit').innerText = sumWitFormatted + ' ETB';
+
             if(document.getElementById('sum-pend-wit-normal')) document.getElementById('sum-pend-wit-normal').innerText = sumWitNormal.toLocaleString('en-US');
             if(document.getElementById('sum-pend-wit-pro')) document.getElementById('sum-pend-wit-pro').innerText = sumWitPro.toLocaleString('en-US');
             
             let bDep = document.getElementById('badge-dep'); 
             let mobBDep = document.getElementById('mob-badge-dep');
+            let dashBDep = document.getElementById('dash-badge-dep');
             if(deps.length > 0) { 
                 if (bDep) { bDep.style.display = 'inline-block'; bDep.innerText = deps.length; }
                 if (mobBDep) { mobBDep.style.display = 'inline-block'; mobBDep.innerText = deps.length; }
+                if (dashBDep) { dashBDep.style.display = 'inline-block'; dashBDep.innerText = deps.length; }
             } else { 
                 if (bDep) bDep.style.display = 'none'; 
                 if (mobBDep) mobBDep.style.display = 'none';
+                if (dashBDep) dashBDep.style.display = 'none';
             }
             
             let depsHtml = deps.map(t => { 
@@ -3439,16 +3624,21 @@ async function submitManualDeposit() {
                 
                 return `<tr><td>${new Date(t.date).toLocaleString()}</td><td><a href="#" style="color:var(--cyan); text-decoration:none; font-weight:bold;" onclick="fetchAndShowUserInfo('${t.phone}'); return false;">${t.phone}</a></td><td>${methodBadge}</td><td style="font-weight:bold; color:var(--faded-green);">${Number(t.amount).toLocaleString('en-US', {minimumFractionDigits: 2})} ETB</td><td><div style="display:flex; align-items:center; gap:5px;"><span style="color:#cbd5e1; font-size:10px;">${smsPreview}</span> <button class="btn-sm btn-blue" onclick="showTxDetailsModal('${t.phone}', '${t.method}', '${t.amount}', '${safeSMS}')">👁️ View</button></div></td><td><button class="btn-sm btn-purple" style="margin-right:5px;" onclick="fetchAndShowUserInfo('${t.phone}')">👁️ User</button><button class="btn-sm" style="background:var(--faded-green); color:black; margin-right:5px;" onclick="actionTx('${t._id}', 'Approve')">Approve</button> <button class="btn-sm btn-red" onclick="actionTx('${t._id}', 'Reject')">Reject</button></td></tr>`; 
             }).join('') || `<tr><td colspan="6" style="text-align:center;">No pending deposits.</td></tr>`;
-            if (document.getElementById('pend-dep-body').innerHTML !== depsHtml) document.getElementById('pend-dep-body').innerHTML = depsHtml;
+            
+            if (document.getElementById('pend-dep-body')) document.getElementById('pend-dep-body').innerHTML = depsHtml;
+            if (document.getElementById('dash-pend-dep-body')) document.getElementById('dash-pend-dep-body').innerHTML = depsHtml;
 
             let bWit = document.getElementById('badge-wit'); 
             let mobBWit = document.getElementById('mob-badge-wit');
+            let dashBWit = document.getElementById('dash-badge-wit');
             if(wits.length > 0) { 
                 if (bWit) { bWit.style.display = 'inline-block'; bWit.innerText = wits.length; }
                 if (mobBWit) { mobBWit.style.display = 'inline-block'; mobBWit.innerText = wits.length; }
+                if (dashBWit) { dashBWit.style.display = 'inline-block'; dashBWit.innerText = wits.length; }
             } else { 
                 if (bWit) bWit.style.display = 'none'; 
                 if (mobBWit) mobBWit.style.display = 'none';
+                if (dashBWit) dashBWit.style.display = 'none';
             }
             
             let witsHtml = wits.map(t => { 
@@ -3460,12 +3650,14 @@ async function submitManualDeposit() {
                 
                 return `<tr><td>${new Date(t.date).toLocaleString()}</td><td style="font-weight: 900; font-size: 15px; letter-spacing: 1px;"><a href="#" style="color:var(--cyan); text-decoration:none;" onclick="fetchAndShowUserInfo('${t.phone}'); return false;">${t.phone}</a></td><td>${methodBadge}</td><td style="font-weight: 900; font-size: 16px; color: var(--orange);">${Number(t.amount).toLocaleString('en-US', {minimumFractionDigits: 2})} ETB</td><td style="font-family: monospace; font-weight: 900; font-size: 15px; color: var(--cyan); letter-spacing: 1px;">${(t.smsText||'').replace('Transfer to: ', '')}</td><td><button class="btn-sm btn-purple" style="font-weight:bold; padding: 8px 12px; margin-right:5px;" onclick="fetchAndShowUserInfo('${t.phone}')">👁️ User</button><button class="btn-sm" style="background:var(--faded-green); color:black; font-weight:bold; padding: 8px 12px; margin-right:5px;" onclick="actionTx('${t._id}', 'Approve')">✅ Approve</button> <button class="btn-sm btn-red" style="font-weight:bold; padding: 8px 12px;" onclick="actionTx('${t._id}', 'Reject')">❌ Reject</button></td></tr>`; 
             }).join('') || `<tr><td colspan="6" style="text-align:center;">No pending normal withdraws.</td></tr>`;
-            if (document.getElementById('pend-wit-body').innerHTML !== witsHtml) document.getElementById('pend-wit-body').innerHTML = witsHtml;
+            
+            if (document.getElementById('pend-wit-body')) document.getElementById('pend-wit-body').innerHTML = witsHtml;
+            if (document.getElementById('dash-pend-wit-body')) document.getElementById('dash-pend-wit-body').innerHTML = witsHtml;
 
             let proWitsHtml = proWits.map(t => {
                 return `<tr><td>${new Date(t.date).toLocaleString()}</td><td style="color:var(--cyan); font-weight:900; font-size:15px; letter-spacing:1px;"><a href="#" style="color:var(--cyan); text-decoration:none;" onclick="fetchAndShowUserInfo('${t.phone}'); return false;">${t.phone}</a></td><td style="color:var(--orange); font-weight:900; font-size:16px;">${Number(t.amount).toLocaleString('en-US', {minimumFractionDigits: 2})} ETB</td><td style="font-family:monospace; font-weight:900; font-size:15px; letter-spacing:1px; color:#ffffff;">${(t.smsText||'').replace('Transfer to: ', '')}</td><td><button class="btn-sm btn-purple" style="font-weight:bold; padding: 8px 12px; margin-right:5px;" onclick="fetchAndShowUserInfo('${t.phone}')">👁️ User</button><button class="btn-sm" style="background:var(--faded-green); color:black; font-weight:bold; padding: 8px 12px; margin-right:5px;" onclick="actionTx('${t._id}', 'Approve')">✅ Approve</button> <button class="btn-sm btn-red" style="font-weight:bold; padding: 8px 12px;" onclick="actionTx('${t._id}', 'Reject')">❌ Reject</button></td></tr>`;
             }).join('') || `<tr><td colspan="5" style="text-align:center;">No pending promoter withdrawals.</td></tr>`;
-            if (document.getElementById('promoter-pend-wit-body').innerHTML !== proWitsHtml) document.getElementById('promoter-pend-wit-body').innerHTML = proWitsHtml;
+            if (document.getElementById('promoter-pend-wit-body')) document.getElementById('promoter-pend-wit-body').innerHTML = proWitsHtml;
         }
     }
     
@@ -4395,7 +4587,10 @@ async function submitManualDeposit() {
         async function loadSmsComparison(page) {
             p_sms = page;
             let tbody = document.getElementById('sms-compare-body');
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Loading comparison data...</td></tr>';
+            let dashTbody = document.getElementById('dash-sms-compare-body');
+            let loadingHtml = '<tr><td colspan="4" style="text-align:center;">Loading comparison data...</td></tr>';
+            if (tbody) tbody.innerHTML = loadingHtml;
+            if (dashTbody) dashTbody.innerHTML = loadingHtml;
             
             try {
                 let res = await fetch('/api/admin/sms-comparison', {
@@ -4451,17 +4646,107 @@ async function submitManualDeposit() {
                         </tr>`;
                     });
                     
-                    tbody.innerHTML = html || '<tr><td colspan="4" style="text-align:center; color:var(--orange);">ምንም መረጃ አልተገኘም (No Data)</td></tr>';
-                    renderPagination('pag-sms-compare', data.total, p_sms, 'loadSmsComparison');
+                    let finalHtml = html || '<tr><td colspan="4" style="text-align:center; color:var(--orange);">ምንም መረጃ አልተገኘም (No Data)</td></tr>';
+                    if (tbody) tbody.innerHTML = finalHtml;
+                    if (dashTbody) dashTbody.innerHTML = finalHtml;
+
+                    if (document.getElementById('pag-sms-compare')) renderPagination('pag-sms-compare', data.total, p_sms, 'loadSmsComparison');
+                    if (document.getElementById('pag-dash-sms-compare')) renderPagination('pag-dash-sms-compare', data.total, p_sms, 'loadSmsComparison');
                     
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">መረጃ ማምጣት አልተቻለም!</td></tr>';
+                    let errHtml = '<tr><td colspan="4" style="text-align:center; color:red;">መረጃ ማምጣት አልተቻለም!</td></tr>';
+                    if (tbody) tbody.innerHTML = errHtml;
+                    if (dashTbody) dashTbody.innerHTML = errHtml;
                 }
             } catch(e) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">የኔትወርክ ስህተት!</td></tr>';
+                let netHtml = '<tr><td colspan="4" style="text-align:center; color:red;">የኔትወርክ ስህተት!</td></tr>';
+                if (tbody) tbody.innerHTML = netHtml;
+                if (dashTbody) dashTbody.innerHTML = netHtml;
             }
         }
 
+        /* DASHBOARD COMMAND CENTER LOGIC */
+        function switchDashPill(pillId) {
+            document.querySelectorAll('.dash-pill-pane').forEach(p => p.style.display = 'none');
+            const target = document.getElementById(pillId);
+            if (target) target.style.display = 'block';
+
+            document.querySelectorAll('.dash-pill-btn').forEach(b => b.classList.remove('active'));
+            const btn = document.getElementById(pillId.replace('dpill-', 'dpill-btn-'));
+            if (btn) btn.classList.add('active');
+
+            if (pillId === 'dpill-dep' || pillId === 'dpill-wit') {
+                loadPendingTxs();
+            } else if (pillId === 'dpill-sms') {
+                loadSmsComparison(1);
+            } else if (pillId === 'dpill-bot') {
+                syncDashBotControls();
+            } else if (pillId === 'dpill-players') {
+                renderDashLivePlayers();
+            }
+        }
+
+        function syncDashBotControls() {
+            const masterToggle = document.getElementById('bot-master-toggle');
+            const dashToggle = document.getElementById('dash-bot-master-toggle');
+            if (masterToggle && dashToggle) {
+                dashToggle.checked = masterToggle.checked;
+            }
+
+            const radios = document.getElementsByName('bot-master-winner');
+            let val = 'mix';
+            for (let r of radios) { if (r.checked) val = r.value; }
+            const dashRadios = document.getElementsByName('dash-winner-force');
+            for (let dr of dashRadios) {
+                dr.checked = (dr.value === val);
+            }
+        }
+
+        function syncAndSaveBotToggle(isChecked) {
+            const masterToggle = document.getElementById('bot-master-toggle');
+            if (masterToggle) masterToggle.checked = isChecked;
+            saveBotMasterSettings(true);
+        }
+
+        function syncWinnerForce(val) {
+            const radios = document.getElementsByName('bot-master-winner');
+            for (let r of radios) {
+                r.checked = (r.value === val);
+            }
+            toggleMixInput();
+            saveBotMasterSettings(true);
+        }
+
+        async function renderDashLivePlayers() {
+            const el = document.getElementById('dash-live-players-preview');
+            if (!el || !pass) return;
+            try {
+                let res = await fetch('/api/admin/live-players', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({adminPass: pass})
+                });
+                let data = await res.json();
+                if (data.success && data.players && data.players.length > 0) {
+                    let html = '<div style="display:flex; flex-wrap:wrap; gap:8px;">';
+                    data.players.forEach(p => {
+                        let isBot = p.isBot;
+                        let bg = isBot ? 'rgba(239, 68, 68, 0.15)' : 'rgba(74, 222, 128, 0.15)';
+                        let border = isBot ? 'var(--red)' : 'var(--faded-green)';
+                        let icon = isBot ? '🤖' : '👤';
+                        html += `<div style="background:${bg}; border:1px solid ${border}; padding:6px 12px; border-radius:8px; font-size:13px; display:inline-flex; align-items:center; gap:6px;">
+                            <b>${icon} ${p.username || p.phone}</b> <span style="color:var(--gold); font-weight:bold;">(${p.ticketsCount || 1} cards)</span>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    el.innerHTML = html;
+                } else {
+                    el.innerHTML = '<div style="color:var(--text-gray); text-align:center; padding:15px 0;">በዚህ ዙር የተመዘገበ ተጫዋች የለም (Waiting for Round)።</div>';
+                }
+            } catch(e) {
+                el.innerHTML = '<div style="color:var(--text-gray); text-align:center;">መረጃ ማምጣት አልተቻለም።</div>';
+            }
+        }
     </script>
     </body>
     </html>
