@@ -1000,20 +1000,7 @@
         socket.emit('get_initial_data', tgUser.phone);
     };
 
-        let savedPhone = localStorage.getItem('bingo_user_phone'); let savedPass = localStorage.getItem('bingo_user_pass');
-        
-        if(savedPhone && savedPass && document.getElementById('manual-login-form').style.display !== 'none') {
-            document.getElementById('start-btn').innerText = "እየገባ ነው... (Logging in...)"; document.getElementById('start-btn').disabled = true;
-            try {
-                let res = await fetch('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phone: savedPhone, password: savedPass}) }); let data = await res.json();
-                if(data.success) { 
-                    processLoginSuccess(data.user); 
-                    loadActiveTicketsData(data.user.phone);
-                    socket.emit('get_initial_data', data.user.phone); 
-                } else { logout(); }
-            } catch(e) { document.getElementById('start-btn').innerText = "ወደ ጌም ግባ (REGISTER)"; document.getElementById('start-btn').disabled = false; }
-        }
-    };
+
 
     async function loadActiveTicketsData(phone) {
         try {
