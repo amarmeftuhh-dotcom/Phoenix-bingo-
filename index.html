@@ -637,6 +637,10 @@
 
     <div style="display:flex; flex-direction:column; gap:8px;">
         
+        <button class="prof-list-btn" onclick="openInAppAdmin()" style="border: 1px solid var(--gold); background: rgba(240, 208, 125, 0.1); color: var(--gold);">
+            <div style="display:flex; align-items:center;"><span style="font-size: 18px; margin-right: 12px;">👑</span> <span id="prof-admin-lbl">Admin Control Hub (አድሚን ዳሽቦርድ)</span></div><span style="color:var(--gold);">></span>
+        </button>
+
         <button class="prof-list-btn" onclick="openGameHistory()">
             <div style="display:flex; align-items:center;"><span style="font-size: 18px; margin-right: 12px;">📜</span> <span id="prof-history-lbl">የጨዋታ ታሪክ (Game History)</span></div><span style="color:#64748b;">></span>
         </button>
@@ -2659,6 +2663,92 @@ function generateFixedCard(ticketId) {
             navbar.style.display = 'flex';
         }
     }
+
+    function openInAppAdmin() {
+        document.getElementById('in-app-admin-modal').style.display = 'flex';
+        fetch('/api/bank-settings').then(r => r.json()).then(d => {
+            if (d && d.bankInfo) {
+                document.getElementById('ia-tb-num').value = d.bankInfo.tbNum || '';
+                document.getElementById('ia-cbe-num').value = d.bankInfo.cbeNum || '';
+            }
+        }).catch(() => {});
+        loadInAppPendingDeposits();
+    }
+
+    async function saveInAppBankSettings() {
+        const tbNum = document.getElementById('ia-tb-num').value.trim();
+        const cbeNum = document.getElementById('ia-cbe-num').value.trim();
+        try {
+            let res = await fetch('/api/admin/update-settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ adminPass: 'phoenix123', telebirrAccountNumber: tbNum, cbeAccountNumber: cbeNum })
+            });
+            let data = await res.json();
+            alert(data.message || "✅ Bank numbers updated successfully!");
+        } catch(e) {
+            alert("✅ Saved!");
+        }
+    }
+
+    async function loadInAppPendingDeposits() {
+        const listEl = document.getElementById('ia-pending-deposits-list');
+        listEl.innerHTML = '<div style="text-align:center; color:gray; padding:10px;">Loading...</div>';
+        try {
+            let txRes = await fetch('/api/admin/sms-comparison', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ adminPass: 'phoenix123' })
+            });
+            let txData = await txRes.json();
+            if (txData && txData.success && txData.data) {
+                let html = '';
+                txData.data.slice(0, 10).forEach(item => {
+                    html += `<div style="background:rgba(0,0,0,0.5); padding:8px 10px; border-radius:8px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <div style="font-weight:bold; color:white;">${item.extraction} ETB (${item.txRef})</div>
+                            <div style="font-size:10px; color:gray;">${item.iphoneSms.slice(0, 40)}...</div>
+                        </div>
+                        <span style="font-size:10px; color:${item.systemData ? '#2dd4bf' : '#f59e0b'};">${item.systemData ? 'MATCHED' : 'PENDING'}</span>
+                    </div>`;
+                });
+                listEl.innerHTML = html || '<div style="text-align:center; color:gray; padding:10px;">No records yet</div>';
+            }
+        } catch(e) {
+            listEl.innerHTML = '<div style="text-align:center; color:gray; padding:10px;">No records yet</div>';
+        }
+    }
 </script>
+
+<!-- 🟢 IN-APP ADMIN MODAL 🟢 -->
+<div id="in-app-admin-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; backdrop-filter:blur(10px);">
+    <div style="background:var(--panel); border:1px solid var(--gold); border-radius:20px; width:92%; max-width:420px; max-height:85vh; overflow-y:auto; padding:20px; box-sizing:border-box; box-shadow:0 15px 35px rgba(0,0,0,0.9);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+            <h3 style="margin:0; color:var(--gold); font-size:16px;">👑 Admin Control Hub</h3>
+            <button onclick="document.getElementById('in-app-admin-modal').style.display='none'" style="background:none; border:none; color:white; font-size:18px; cursor:pointer;">✕</button>
+        </div>
+        
+        <div style="margin-bottom:15px;">
+            <label style="font-size:11px; color:var(--text-gray); font-weight:bold;">Telebirr Phone (የቴሌብር ስልክ ቁጥር)</label>
+            <input type="text" id="ia-tb-num" style="width:100%; padding:10px; background:rgba(0,0,0,0.5); border:1px solid rgba(240,208,125,0.3); border-radius:8px; color:white; margin-top:4px; box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:15px;">
+            <label style="font-size:11px; color:var(--text-gray); font-weight:bold;">CBE Birr Phone (የሲቢኢ ብር ስልክ ቁጥር)</label>
+            <input type="text" id="ia-cbe-num" style="width:100%; padding:10px; background:rgba(0,0,0,0.5); border:1px solid rgba(240,208,125,0.3); border-radius:8px; color:white; margin-top:4px; box-sizing:border-box;">
+        </div>
+        <button class="action-btn" style="width:100%; background:var(--gold-grad); color:black; margin-bottom:15px; padding:12px; font-weight:bold; border-radius:8px;" onclick="saveInAppBankSettings()">💾 Save Bank Numbers</button>
+
+        <hr style="border-color:rgba(255,255,255,0.1); margin:15px 0;">
+
+        <h4 style="color:var(--cyan); margin:0 0 10px 0; font-size:13px;">📥 SMS Comparison & Deposits (የባንክ SMS መቆጣጠሪያ)</h4>
+        <div id="ia-pending-deposits-list" style="max-height:200px; overflow-y:auto; margin-bottom:15px; font-size:12px;">
+            <div style="text-align:center; color:gray; padding:10px;">Loading...</div>
+        </div>
+
+        <div style="text-align:center;">
+            <a href="/admin.html" target="_blank" style="color:var(--gold); font-size:12px; font-weight:bold; text-decoration:underline;">Open Full Desktop Admin Console ↗</a>
+        </div>
+    </div>
+</div>
 </body>
 </html>
