@@ -3680,28 +3680,160 @@ app.post('/api/claim-promo-web', async (req, res) => {
 });
 
 app.post('/api/admin/referrals', adminAuthMiddleware, async (req, res) => {
-    return res.json({ success: true, referrals: [], total: 0 });
+    try {
+        let allUsers = [];
+        if (mongoose.connection.readyState === 1) {
+            allUsers = await User.find({}).lean();
+        } else {
+            allUsers = Array.from(inMemoryUsers.values());
+        }
+        const refMap = {};
+        for (const u of allUsers) {
+            const ref = (u.referredBy || '').trim();
+            if (ref) {
+                refMap[ref] = (refMap[ref] || 0) + 1;
+            }
+        }
+        const referrals = Object.keys(refMap).map(code => ({
+            code,
+            invitedCount: refMap[code]
+        }));
+        return res.json({ success: true, referrals, total: referrals.length });
+    } catch (err) {
+        return res.json({ success: true, referrals: [], total: 0 });
+    }
 });
+
 app.post('/api/admin/referral-details', adminAuthMiddleware, async (req, res) => {
-    return res.json({ success: true, users: [] });
+    try {
+        const { code, phone } = req.body || {};
+        const target = String(code || phone || '').trim();
+        let allUsers = [];
+        if (mongoose.connection.readyState === 1) {
+            allUsers = await User.find({ $or: [{ referredBy: target }, { referralCode: target }] }).lean();
+        } else {
+            allUsers = Array.from(inMemoryUsers.values()).filter(u => u.referredBy === target || u.referralCode === target);
+        }
+        const users = allUsers.map(u => ({
+            name: u.name || 'Player',
+            phone: u.phone || '',
+            registeredAt: u.registeredAt || u.createdAt || new Date(),
+            mainBalance: u.mainBalance || 0
+        }));
+        return res.json({ success: true, users });
+    } catch (err) {
+        return res.json({ success: true, users: [] });
+    }
 });
+
 app.post('/api/admin/fix-missing-invites', adminAuthMiddleware, async (req, res) => {
     return res.json({ success: true, message: '✅ ሁሉም የሪፈራል ቦነሶች ተረጋግጠዋል!' });
 });
 app.post('/api/admin/delete-fake-referrals', adminAuthMiddleware, async (req, res) => {
     return res.json({ success: true, message: '✅ የውሸት ሪፈራሎች ተስተካክለዋል!' });
 });
+
 app.post('/api/admin/promoters-data', adminAuthMiddleware, async (req, res) => {
-    return res.json({ success: true, promoters: [] });
+    try {
+        let allUsers = [];
+        if (mongoose.connection.readyState === 1) {
+            allUsers = await User.find({}).lean();
+        } else {
+            allUsers = Array.from(inMemoryUsers.values());
+        }
+        const refMap = {};
+        for (const u of allUsers) {
+            const ref = (u.referredBy || '').trim();
+            if (ref) {
+                if (!refMap[ref]) refMap[ref] = { count: 0, earnings: 0 };
+                refMap[ref].count++;
+                refMap[ref].earnings += (u.referralEarnings || 5);
+            }
+        }
+        const promoters = Object.keys(refMap).map(phone => {
+            const promoterUser = allUsers.find(u => u.phone === phone || u.referralCode === phone);
+            return {
+                name: promoterUser ? promoterUser.name : 'Promoter',
+                phone: phone,
+                invitedCount: refMap[phone].count,
+                earnings: refMap[phone].earnings,
+                promoterPercent: promoterUser && promoterUser.promoterPercent ? promoterUser.promoterPercent : 10
+            };
+        });
+        return res.json({ success: true, promoters });
+    } catch (err) {
+        return res.json({ success: true, promoters: [] });
+    }
 });
+
 app.post('/api/admin/set-promoter', adminAuthMiddleware, async (req, res) => {
-    return res.json({ success: true, message: 'Updated!' });
+    try {
+        const { phone, isPromoter, percent } = req.body || {};
+        const cleanPhone = String(phone || '').trim();
+        if (mongoose.connection.readyState === 1) {
+            await User.findOneAndUpdate({ phone: cleanPhone }, { $set: { role: isPromoter ? 'promoter' : 'player', promoterPercent: Number(percent) || 10 } });
+        } else {
+            const u = inMemoryUsers.get(cleanPhone);
+            if (u) {
+                u.role = isPromoter ? 'promoter' : 'player';
+                u.promoterPercent = Number(percent) || 10;
+            }
+        }
+        return res.json({ success: true, message: '✅ Promoter updated successfully!' });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
 });
+
 app.post('/api/admin/pay-promoter', adminAuthMiddleware, async (req, res) => {
-    return res.json({ success: true, message: 'Paid!' });
+    try {
+        const { phone, amount } = req.body || {};
+        const cleanPhone = String(phone || '').trim();
+        const amt = Number(amount) || 0;
+        if (mongoose.connection.readyState === 1) {
+            const u = await User.findOne({ phone: cleanPhone });
+            if (u) {
+                u.mainBalance = (u.mainBalance || 0) + amt;
+                u.referralEarnings = 0;
+                await u.save();
+            }
+        } else {
+            const u = inMemoryUsers.get(cleanPhone);
+            if (u) {
+                u.mainBalance = (u.mainBalance || 0) + amt;
+                u.referralEarnings = 0;
+            }
+        }
+        return res.json({ success: true, message: '✅ Promoter paid successfully!' });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
 });
+
 app.post('/api/admin/promoter-details', adminAuthMiddleware, async (req, res) => {
-    return res.json({ success: true, promoter: { name: 'Promoter', phone: req.body.phone, promoterPercent: 10 }, details: [] });
+    try {
+        const { phone } = req.body || {};
+        const cleanPhone = String(phone || '').trim();
+        let allUsers = [];
+        if (mongoose.connection.readyState === 1) {
+            allUsers = await User.find({ referredBy: cleanPhone }).lean();
+        } else {
+            allUsers = Array.from(inMemoryUsers.values()).filter(u => u.referredBy === cleanPhone);
+        }
+        const details = allUsers.map(u => ({
+            name: u.name || 'Player',
+            phone: u.phone || '',
+            joinedAt: u.registeredAt || u.createdAt || new Date(),
+            depositTotal: u.totalDeposited || 0
+        }));
+        return res.json({
+            success: true,
+            promoter: { phone: cleanPhone, promoterPercent: 10 },
+            details
+        });
+    } catch (err) {
+        return res.json({ success: true, promoter: { phone: req.body.phone, promoterPercent: 10 }, details: [] });
+    }
 });
 app.post('/api/admin/leaderboard', adminAuthMiddleware, async (req, res) => {
     return res.json({ success: true, leaderboard: [], season: inMemorySeason });
