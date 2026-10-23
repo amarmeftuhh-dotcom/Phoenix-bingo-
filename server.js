@@ -1361,13 +1361,18 @@ async function handleSmsWebhook(req, res) {
             trx = trxMatch[1];
         }
 
-        const smsDoc = new BankSMS({
+        const smsObj = {
             sender,
             body,
             amount,
             trx,
-            isMatched: false
-        });
+            isMatched: false,
+            receivedAt: new Date()
+        };
+        if (!global.__inMemoryBankSMS) global.__inMemoryBankSMS = [];
+        global.__inMemoryBankSMS.unshift(smsObj);
+
+        const smsDoc = new BankSMS(smsObj);
         await smsDoc.save().catch(() => {});
 
         // Match pending deposits
@@ -3849,7 +3854,17 @@ app.post('/api/admin/sms-comparison', adminAuthMiddleware, async (req, res) => {
             smsList = await BankSMS.find().sort({ receivedAt: -1 }).limit(30).catch(() => []);
             depTxs = await Transaction.find({ type: { $regex: /dep/i } }).sort({ date: -1 }).limit(200).catch(() => []);
         }
-        const data = smsList.map(s => {
+        const combinedSms = [...(smsList || []), ...(global.__inMemoryBankSMS || [])];
+        const uniqueMap = new Map();
+        for (const s of combinedSms) {
+            const key = s.trx || s.body;
+            if (key && !uniqueMap.has(key)) {
+                uniqueMap.set(key, s);
+            }
+        }
+        const finalSms = Array.from(uniqueMap.values()).slice(0, 50);
+
+        const data = finalSms.map(s => {
             const matchedTx = depTxs.find(t =>
                 (s.trx && (t.txRef === s.trx || (t.smsText && t.smsText.includes(s.trx)))) ||
                 (s.amount > 0 && Number(t.amount) === Number(s.amount))
@@ -3860,7 +3875,7 @@ app.post('/api/admin/sms-comparison', adminAuthMiddleware, async (req, res) => {
                 txRef: s.trx || 'N/A',
                 extraction: s.amount || 0,
                 systemData: matchedTx ? {
-                    txId: String(matchedTx._id),
+                    txId: String(matchedTx._id || ''),
                     phone: matchedTx.phone || matchedTx.userId || 'Unknown',
                     amount: Number(matchedTx.amount || 0),
                     status: matchedTx.status || 'Pending',
