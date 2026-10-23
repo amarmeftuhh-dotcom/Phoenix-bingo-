@@ -508,6 +508,30 @@
     </div>
     
     <div id="grid-box" class="num-grid"></div>
+
+    <!-- 🟢 EMBEDDED DASHBOARD ADMIN & BANK HUB 🟢 -->
+    <div style="margin: 20px 10px; background: rgba(15, 23, 42, 0.95); border: 1px solid var(--gold); border-radius: 16px; padding: 15px; box-sizing: border-box; text-align: left;">
+        <h3 style="margin: 0 0 10px 0; color: var(--gold); font-size: 14px; display: flex; align-items: center; gap: 8px;">
+            <span>👑</span> <span>Admin & Bank Control Hub (ዳሽቦርድ አድሚን)</span>
+        </h3>
+        
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <div style="flex: 1;">
+                <label style="font-size: 10px; color: var(--text-gray); font-weight: bold;">Telebirr Phone</label>
+                <input type="text" id="dash-tb-num" style="width: 100%; padding: 8px; background: rgba(0,0,0,0.6); border: 1px solid rgba(240,208,125,0.3); border-radius: 6px; color: white; font-size: 12px; box-sizing: border-box;">
+            </div>
+            <div style="flex: 1;">
+                <label style="font-size: 10px; color: var(--text-gray); font-weight: bold;">CBE Birr Phone</label>
+                <input type="text" id="dash-cbe-num" style="width: 100%; padding: 8px; background: rgba(0,0,0,0.6); border: 1px solid rgba(240,208,125,0.3); border-radius: 6px; color: white; font-size: 12px; box-sizing: border-box;">
+            </div>
+        </div>
+        <button class="auth-btn" style="padding: 10px; font-size: 12px; margin-bottom: 15px;" onclick="saveDashBankSettings()">💾 Save Bank Numbers</button>
+
+        <h4 style="color: var(--cyan); margin: 0 0 8px 0; font-size: 12px;">📥 Recent Bank SMS / Deposits (የባንክ SMS ফিድ)</h4>
+        <div id="dash-sms-compare-body" style="max-height: 150px; overflow-y: auto; background: rgba(0,0,0,0.5); border-radius: 8px; padding: 8px; font-size: 11px;">
+            <div style="text-align: center; color: gray;">Loading SMS feed...</div>
+        </div>
+    </div>
 </div>
 
 <!-- COMPACT FIXED BET SLIP POPUP -->
@@ -1002,6 +1026,7 @@
         processLoginSuccess(tgUser);
         loadActiveTicketsData(tgUser.phone);
         socket.emit('get_initial_data', tgUser.phone);
+        loadDashAdminData();
     };
 
 
@@ -2716,6 +2741,62 @@ function generateFixedCard(ticketId) {
             }
         } catch(e) {
             listEl.innerHTML = '<div style="text-align:center; color:gray; padding:10px;">No records yet</div>';
+        }
+    }
+
+    function loadDashAdminData() {
+        fetch('/api/bank-settings').then(r => r.json()).then(d => {
+            if (d && d.bankInfo) {
+                const tbEl = document.getElementById('dash-tb-num');
+                const cbeEl = document.getElementById('dash-cbe-num');
+                if (tbEl) tbEl.value = d.bankInfo.tbNum || '';
+                if (cbeEl) cbeEl.value = d.bankInfo.cbeNum || '';
+            }
+        }).catch(() => {});
+        loadDashSmsFeed();
+    }
+
+    async function saveDashBankSettings() {
+        const tbNum = document.getElementById('dash-tb-num').value.trim();
+        const cbeNum = document.getElementById('dash-cbe-num').value.trim();
+        try {
+            let res = await fetch('/api/admin/update-settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ adminPass: 'phoenix123', telebirrAccountNumber: tbNum, cbeAccountNumber: cbeNum })
+            });
+            let data = await res.json();
+            alert(data.message || "✅ Bank numbers saved successfully!");
+        } catch(e) {
+            alert("✅ Saved!");
+        }
+    }
+
+    async function loadDashSmsFeed() {
+        const bodyEl = document.getElementById('dash-sms-compare-body');
+        if (!bodyEl) return;
+        try {
+            let res = await fetch('/api/admin/sms-comparison', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ adminPass: 'phoenix123' })
+            });
+            let data = await res.json();
+            if (data && data.success && data.data) {
+                let html = '';
+                data.data.slice(0, 10).forEach(item => {
+                    html += `<div style="background:rgba(0,0,0,0.5); padding:6px 8px; border-radius:6px; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <span style="font-weight:bold; color:white;">${item.extraction} ETB</span> <span style="color:var(--gold);">(${item.txRef})</span>
+                            <div style="font-size:9px; color:gray; max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.iphoneSms}</div>
+                        </div>
+                        <span style="font-size:9px; color:${item.systemData ? '#2dd4bf' : '#f59e0b'};">${item.systemData ? 'MATCHED' : 'PENDING'}</span>
+                    </div>`;
+                });
+                bodyEl.innerHTML = html || '<div style="text-align:center; color:gray;">No SMS records yet</div>';
+            }
+        } catch(e) {
+            bodyEl.innerHTML = '<div style="text-align:center; color:gray;">No SMS records yet</div>';
         }
     }
 </script>
