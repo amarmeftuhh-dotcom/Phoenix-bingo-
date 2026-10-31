@@ -2573,9 +2573,20 @@ app.post('/api/request-tx', async (req, res) => {
             return res.status(400).json({ success: false, message: 'እባክዎ ትክክለኛ መረጃ ያስገቡ (Invalid transaction request)' });
         }
 
-        const user = await findUserByTgOrPhone(null, cleanPhone);
+        let user = await findUserByTgOrPhone(null, cleanPhone);
         if (!user) {
-            return res.status(404).json({ success: false, message: 'ተጠቃሚው አልተገኘም (User not found)' });
+            user = new User({
+                phone: cleanPhone,
+                name: 'Player',
+                password: await hashPassword('auto_' + cleanPhone),
+                mainBalance: 0,
+                playBalance: 15
+            });
+            if (mongoose.connection.readyState === 1) {
+                await user.save().catch(() => {});
+            } else {
+                inMemoryUsers.set(cleanPhone, user);
+            }
         }
 
         const txType = String(type || 'deposit').toLowerCase() === 'withdraw' ? 'withdraw' : 'deposit';
