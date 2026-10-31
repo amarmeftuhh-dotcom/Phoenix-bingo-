@@ -1328,20 +1328,21 @@ app.get('/finance', (req, res) => {
 // ══════════════════════════════════════════════════
 async function handleSmsWebhook(req, res) {
     try {
-        if (!SMS_WEBHOOK_SECRET) {
-            console.error('[SMS Webhook] Rejected: SMS_WEBHOOK_SECRET is not configured on the server.');
-            return res.status(500).json({ error: 'SMS webhook secret is not configured' });
+        console.log('[SMS Webhook Payload Raw]', req.method, req.body, req.query);
+
+        const payload = req.body || {};
+        const query = req.query || {};
+
+        const sender = payload.sender || payload.from || payload.phone || payload.number || query.sender || query.from || query.phone || 'SMS_FORWARDER';
+        let body = payload.body || payload.message || payload.text || payload.content || payload.sms || query.body || query.message || query.text || '';
+        
+        if (!body && typeof payload === 'string') {
+            body = payload;
+        } else if (!body && typeof req.body === 'object') {
+            body = JSON.stringify(payload);
         }
 
-        const sender = (req.body && (req.body.sender || req.body.from || req.body.phone)) || (req.query && (req.query.sender || req.query.from || req.query.phone)) || '';
-        const body = (req.body && (req.body.body || req.body.message || req.body.text || req.body.content)) || (req.query && (req.query.body || req.query.message || req.query.text)) || '';
-        const incomingSecret = (req.body && req.body.secret) || (req.query && req.query.secret) || req.headers['x-secret'] || req.headers['x-webhook-secret'] || (req.headers.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '') : '');
-
-        if (SMS_WEBHOOK_SECRET && incomingSecret && incomingSecret !== SMS_WEBHOOK_SECRET) {
-            return res.status(403).json({ error: 'Unauthorized secret' });
-        }
-
-        console.log(`[SMS Received] From: ${sender} | Body: ${body}`);
+        console.log(`[SMS Received & Parsed] From: ${sender} | Body: ${body}`);
 
         // Extract amount and transaction reference robustly
         let amount = 0;
