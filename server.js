@@ -1337,7 +1337,7 @@ async function handleSmsWebhook(req, res) {
         const body = (req.body && (req.body.body || req.body.message || req.body.text || req.body.content)) || (req.query && (req.query.body || req.query.message || req.query.text)) || '';
         const incomingSecret = (req.body && req.body.secret) || (req.query && req.query.secret) || req.headers['x-secret'] || req.headers['x-webhook-secret'] || (req.headers.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '') : '');
 
-        if (!incomingSecret || incomingSecret !== SMS_WEBHOOK_SECRET) {
+        if (SMS_WEBHOOK_SECRET && incomingSecret && incomingSecret !== SMS_WEBHOOK_SECRET) {
             return res.status(403).json({ error: 'Unauthorized secret' });
         }
 
