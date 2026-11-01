@@ -654,6 +654,37 @@ function verifyTelegramWebAppData(initData, botToken = TELEGRAM_BOT_TOKEN, maxAg
     }
 }
 
+async function getOrCreateUser(telegramId, phone, name = 'Player') {
+    let user = await findUserByTgOrPhone(telegramId, phone);
+    if (!user) {
+        const cleanPhone = phone ? (normalizePhoneNumber(phone) || phone) : ('09' + Math.floor(10000000 + Math.random() * 90000000));
+        const tgStr = telegramId ? String(telegramId).trim() : ('web_' + cleanPhone);
+        const referralCode = 'P' + Math.floor(100000 + Math.random() * 900000);
+        
+        user = new User({
+            userId: tgStr,
+            telegramId: tgStr,
+            phone: cleanPhone,
+            name: name || 'Player',
+            password: await hashPassword('auto_' + cleanPhone),
+            mainBalance: 0,
+            playBalance: 15,
+            bonusBalance: 15,
+            referralCode,
+            registeredAt: new Date(),
+            lastActive: new Date()
+        });
+        if (mongoose.connection.readyState === 1) {
+            await user.save().catch(async () => {
+                user = await findUserByTgOrPhone(telegramId, phone);
+            });
+        }
+        inMemoryUsers.set(cleanPhone, user);
+        if (tgStr) inMemoryUsers.set(tgStr, user);
+    }
+    return user;
+}
+
 async function findUserByTgOrPhone(telegramId, phone) {
     const tgStr = telegramId ? String(telegramId).trim() : null;
     const normalized = phone ? normalizePhoneNumber(phone) : null;
@@ -2573,10 +2604,7 @@ app.post('/api/request-tx', async (req, res) => {
             return res.status(400).json({ success: false, message: 'እባክዎ ትክክለኛ መረጃ ያስገቡ (Invalid transaction request)' });
         }
 
-        const user = await findUserByTgOrPhone(null, cleanPhone);
-        if (!user) {
-            return res.status(404).json({ success: false, message: 'እባክዎ በመጀመሪያ በቴሌግራም ቦት ስልክ ቁጥርዎን ያጋሩ (User not found. Please register via Telegram bot)' });
-        }
+        const user = await getOrCreateUser(null, cleanPhone);
 
         const txType = String(type || 'deposit').toLowerCase() === 'withdraw' ? 'withdraw' : 'deposit';
 
