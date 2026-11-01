@@ -2573,20 +2573,9 @@ app.post('/api/request-tx', async (req, res) => {
             return res.status(400).json({ success: false, message: 'እባክዎ ትክክለኛ መረጃ ያስገቡ (Invalid transaction request)' });
         }
 
-        let user = await findUserByTgOrPhone(null, cleanPhone);
+        const user = await findUserByTgOrPhone(null, cleanPhone);
         if (!user) {
-            user = new User({
-                phone: cleanPhone,
-                name: 'Player',
-                password: await hashPassword('auto_' + cleanPhone),
-                mainBalance: 0,
-                playBalance: 15
-            });
-            if (mongoose.connection.readyState === 1) {
-                await user.save().catch(() => {});
-            } else {
-                inMemoryUsers.set(cleanPhone, user);
-            }
+            return res.status(404).json({ success: false, message: 'እባክዎ በመጀመሪያ በቴሌግራም ቦት ስልክ ቁጥርዎን ያጋሩ (User not found. Please register via Telegram bot)' });
         }
 
         const txType = String(type || 'deposit').toLowerCase() === 'withdraw' ? 'withdraw' : 'deposit';
@@ -2595,6 +2584,11 @@ app.post('/api/request-tx', async (req, res) => {
             const currentMain = Number(user.mainBalance ?? user.balance ?? 0);
             if (numAmt > currentMain) {
                 return res.status(400).json({ success: false, message: 'በዋና ሂሳብዎ ላይ በቂ ገንዘብ የሎትም! (Insufficient main balance)' });
+            }
+            const destPhone = normalizePhoneNumber(destinationPhone || cleanPhone) || cleanPhone;
+            const userPhone = normalizePhoneNumber(user.phone) || user.phone;
+            if (destPhone !== userPhone) {
+                return res.status(400).json({ success: false, message: 'የገንዘብ ማውጣት (Withdrawal) መደረግ ያለበት በራሱ በተመዘገበው ስልክ ቁጥር ብቻ ነው!' });
             }
         }
 
